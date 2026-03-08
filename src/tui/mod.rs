@@ -119,6 +119,11 @@ impl App {
             }
             pos -= 1;
         }
+        // No repo above — scroll viewport to reveal directory rows
+        let offset = self.list_state.offset();
+        if offset > 0 {
+            *self.list_state.offset_mut() = offset - 1;
+        }
     }
 
     pub fn toggle_detail(&mut self) {
