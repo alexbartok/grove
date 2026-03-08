@@ -205,7 +205,7 @@ fn draw_detail(f: &mut Frame, app: &App, area: Rect) {
         )));
     }
 
-    if !repo.has_upstream && !repo.is_detached {
+    if repo.has_remote && !repo.has_upstream && !repo.is_detached {
         lines.push(Line::from(Span::styled(
             "  Branch has no upstream tracking",
             Style::default().fg(Color::Red),
