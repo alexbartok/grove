@@ -2,6 +2,9 @@
 name = "grove"
 version = "0.1.0"
 edition = "2024"
+repository = "https://github.com/alexbartok/grove"
+description = "Scans for git repos and shows which ones have uncommitted or unpushed work"
+license = "MIT"
 
 [dependencies]
 anyhow = "1"
@@ -14,3 +17,8 @@ unicode-width = "0.2"
 
 [dev-dependencies]
 tempfile = "3"
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"
