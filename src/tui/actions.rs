@@ -67,6 +67,17 @@ pub fn launch_claude(
     suspend_and_run(terminal, cmd)
 }
 
+pub fn launch_lazygit(
+    app: &App,
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+) -> Result<()> {
+    let Some(info) = app.selected_repo() else { return Ok(()) };
+    if !app.has_lazygit { return Ok(()) }
+    let mut cmd = Command::new("lazygit");
+    cmd.current_dir(&info.path);
+    suspend_and_run(terminal, cmd)
+}
+
 pub fn git_push(app: &mut App) -> Result<()> {
     let Some(info) = app.selected_repo() else { return Ok(()) };
     if info.ahead == 0 || !info.has_remote { return Ok(()) }

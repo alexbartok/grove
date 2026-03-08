@@ -16,6 +16,15 @@ use ratatui::{backend::CrosstermBackend, widgets::ListState, Terminal};
 use crate::model::RepoInfo;
 use tree::{DisplayRow, SortMode};
 
+fn detect_lazygit() -> bool {
+    std::process::Command::new("lazygit")
+        .arg("--version")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok()
+}
+
 pub struct App {
     pub repos: Vec<RepoInfo>,
     pub selected: usize,
@@ -27,6 +36,7 @@ pub struct App {
     pub home_dir: Option<std::path::PathBuf>,
     pub sort_mode: SortMode,
     pub display_rows: Vec<DisplayRow>,
+    pub has_lazygit: bool,
 }
 
 impl App {
@@ -47,6 +57,7 @@ impl App {
             home_dir,
             sort_mode: SortMode::Tree,
             display_rows: Vec::new(),
+            has_lazygit: detect_lazygit(),
         };
         app.rebuild_display_rows();
         app.select_first_repo();
@@ -242,6 +253,7 @@ fn handle_key(
         KeyCode::Char('f') => actions::git_fetch(app)?,
         KeyCode::Char('P') => actions::git_pull(app)?,
         KeyCode::Char('y') => actions::copy_path(app)?,
+        KeyCode::Char('l') => actions::launch_lazygit(app, terminal)?,
         _ => {}
     }
     Ok(())

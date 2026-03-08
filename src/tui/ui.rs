@@ -367,6 +367,10 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
         }
     }
 
+    if app.has_lazygit {
+        append_key_hint(&mut spans, "l", "azygit");
+    }
+
     // Always-present keys
     append_key_hint(&mut spans, "o", "rder");
     append_key_hint(&mut spans, "s", "hell");
