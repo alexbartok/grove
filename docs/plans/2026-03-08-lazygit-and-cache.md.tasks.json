@@ -1,0 +1,14 @@
+{
+  "planPath": "docs/plans/2026-03-08-lazygit-and-cache.md",
+  "tasks": [
+    {"id": 1, "subject": "Task 1: Detect lazygit availability", "status": "pending"},
+    {"id": 2, "subject": "Task 2: Add launch_lazygit action", "status": "pending", "blockedBy": [1]},
+    {"id": 3, "subject": "Task 3: Add lazygit keybinding and footer hint", "status": "pending", "blockedBy": [2]},
+    {"id": 4, "subject": "Task 4: Create cache module", "status": "pending"},
+    {"id": 5, "subject": "Task 5: Add scan message types and App fields", "status": "pending", "blockedBy": [4]},
+    {"id": 6, "subject": "Task 6: Background scan thread and poll logic", "status": "pending", "blockedBy": [5]},
+    {"id": 7, "subject": "Task 7: Cache-first startup flow in main.rs", "status": "pending", "blockedBy": [6]},
+    {"id": 8, "subject": "Task 8: Scanning indicator in TUI header", "status": "pending", "blockedBy": [6]}
+  ],
+  "lastUpdated": "2026-03-08T00:00:00Z"
+}
