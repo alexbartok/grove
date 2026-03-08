@@ -86,6 +86,16 @@ fn draw_header(f: &mut Frame, app: &App, area: Rect) {
 // ---------------------------------------------------------------------------
 
 fn draw_repo_list(f: &mut Frame, app: &App, area: Rect) {
+    // Compute column widths from actual data
+    let mut path_w = 4_usize;  // "REPO"
+    let mut branch_w = 6_usize; // "BRANCH"
+    let mut status_w = 6_usize; // "STATUS"
+    for repo in &app.repos {
+        path_w = path_w.max(display_path(&repo.path, app.home_dir.as_deref()).len());
+        branch_w = branch_w.max(repo.branch_display().len());
+        status_w = status_w.max(repo.status_summary().len());
+    }
+
     let items: Vec<ListItem> = app
         .repos
         .iter()
@@ -94,37 +104,30 @@ fn draw_repo_list(f: &mut Frame, app: &App, area: Rect) {
             let selected = i == app.selected;
             let prefix = if selected { "\u{25b8} " } else { "  " };
             let color = risk_color(repo.risk_level());
+            let bold = if selected { Modifier::BOLD } else { Modifier::empty() };
 
             let path_str = display_path(&repo.path, app.home_dir.as_deref());
-            let branch = repo.branch_display();
-            let status = repo.status_summary();
-            let sync = repo.sync_summary();
-
-            let mut style = Style::default();
-            if selected {
-                style = style.add_modifier(Modifier::BOLD);
-            }
 
             let line = Line::from(vec![
-                Span::styled(prefix, style),
+                Span::styled(prefix, Style::default().add_modifier(bold)),
                 Span::styled(
-                    format!("{:<30}", path_str),
-                    Style::default().fg(color).add_modifier(if selected { Modifier::BOLD } else { Modifier::empty() }),
+                    format!("{:<w$}", path_str, w = path_w),
+                    Style::default().fg(color).add_modifier(bold),
                 ),
-                Span::raw(" "),
+                Span::raw("  "),
                 Span::styled(
-                    format!("{:<12}", branch),
-                    Style::default().fg(Color::Cyan).add_modifier(if selected { Modifier::BOLD } else { Modifier::empty() }),
+                    format!("{:<w$}", repo.branch_display(), w = branch_w),
+                    Style::default().fg(Color::Cyan).add_modifier(bold),
                 ),
-                Span::raw(" "),
+                Span::raw("  "),
                 Span::styled(
-                    format!("{:<16}", status),
-                    Style::default().fg(color).add_modifier(if selected { Modifier::BOLD } else { Modifier::empty() }),
+                    format!("{:<w$}", repo.status_summary(), w = status_w),
+                    Style::default().fg(color).add_modifier(bold),
                 ),
-                Span::raw(" "),
+                Span::raw("  "),
                 Span::styled(
-                    sync,
-                    Style::default().fg(color).add_modifier(if selected { Modifier::BOLD } else { Modifier::empty() }),
+                    repo.sync_summary(),
+                    Style::default().fg(color).add_modifier(bold),
                 ),
             ]);
 
