@@ -56,69 +56,134 @@ fn main() -> Result<()> {
         cross_filesystems: args.all_filesystems,
     };
 
-    // Phase 1: scan for repos with progress
-    let mut last_update = Instant::now();
-    let repo_paths = scanner::scan_repos_with_progress(&scan_path, &opts, |progress| {
-        // Throttle updates to avoid excessive writes
-        let now = Instant::now();
-        if now.duration_since(last_update).as_millis() < 80 {
-            return;
-        }
-        last_update = now;
-
-        let dir_display = display_path(progress.current_dir, home_dir.as_deref());
-        // Truncate long paths to keep output on one line
-        let max_len = 60;
-        let dir_short = if dir_display.len() > max_len {
-            format!("...{}", &dir_display[dir_display.len() - max_len + 3..])
-        } else {
-            dir_display
-        };
-        eprint!(
-            "\r\x1b[KScanning: {} dirs | {} repos found | {}",
-            progress.dirs_scanned, progress.repos_found, dir_short
-        );
-        let _ = std::io::stderr().flush();
-    });
-
-    // Clear the progress line
-    eprint!("\r\x1b[K");
-    let _ = std::io::stderr().flush();
-
-    // Phase 2: inspect each repo with progress
-    let total = repo_paths.len();
-    let mut repos: Vec<RepoInfo> = Vec::with_capacity(total);
-    let mut last_update = Instant::now();
-
-    for (i, p) in repo_paths.iter().enumerate() {
-        let now = Instant::now();
-        if now.duration_since(last_update).as_millis() >= 80 {
-            last_update = now;
-            let path_display = display_path(p, home_dir.as_deref());
-            eprint!("\r\x1b[KInspecting repo {}/{}: {}", i + 1, total, path_display);
-            let _ = std::io::stderr().flush();
-        }
-
-        match git::inspect_repo(p) {
-            Ok(info) => repos.push(info),
-            Err(e) => {
-                eprint!("\r\x1b[K");
-                eprintln!("Warning: failed to inspect {}: {}", p.display(), e);
-            }
-        }
-    }
-
-    // Clear the progress line
-    eprint!("\r\x1b[K");
-    let _ = std::io::stderr().flush();
-
-    // Sort by risk level (at-risk first)
-    repos.sort_by_key(|r| r.risk_level());
-
     if interactive {
+        let cached_paths = grove::cache::load(&scan_path);
+
+        let mut repos: Vec<RepoInfo> = if let Some(ref paths) = cached_paths {
+            // Cache hit: quick-verify and inspect cached repos
+            let valid: Vec<&std::path::Path> = paths
+                .iter()
+                .filter(|p| p.join(".git").exists())
+                .map(|p| p.as_path())
+                .collect();
+
+            let total = valid.len();
+            let mut last_update = Instant::now();
+            let mut result = Vec::with_capacity(total);
+
+            for (i, p) in valid.iter().enumerate() {
+                let now = Instant::now();
+                if now.duration_since(last_update).as_millis() >= 80 {
+                    last_update = now;
+                    let path_display = display_path(p, home_dir.as_deref());
+                    eprint!("\r\x1b[KLoading repo {}/{}: {}", i + 1, total, path_display);
+                    let _ = std::io::stderr().flush();
+                }
+                if let Ok(info) = git::inspect_repo(p) {
+                    result.push(info);
+                }
+            }
+            eprint!("\r\x1b[K");
+            let _ = std::io::stderr().flush();
+            result
+        } else {
+            // No cache: full scan with progress
+            let mut last_update = Instant::now();
+            let repo_paths = scanner::scan_repos_with_progress(&scan_path, &opts, |progress| {
+                let now = Instant::now();
+                if now.duration_since(last_update).as_millis() < 80 {
+                    return;
+                }
+                last_update = now;
+                let dir_display = display_path(progress.current_dir, home_dir.as_deref());
+                let max_len = 60;
+                let dir_short = if dir_display.len() > max_len {
+                    format!("...{}", &dir_display[dir_display.len() - max_len + 3..])
+                } else {
+                    dir_display
+                };
+                eprint!(
+                    "\r\x1b[KScanning: {} dirs | {} repos found | {}",
+                    progress.dirs_scanned, progress.repos_found, dir_short
+                );
+                let _ = std::io::stderr().flush();
+            });
+            eprint!("\r\x1b[K");
+            let _ = std::io::stderr().flush();
+
+            let total = repo_paths.len();
+            let mut last_update = Instant::now();
+            let mut result = Vec::with_capacity(total);
+            for (i, p) in repo_paths.iter().enumerate() {
+                let now = Instant::now();
+                if now.duration_since(last_update).as_millis() >= 80 {
+                    last_update = now;
+                    eprint!("\r\x1b[KInspecting repo {}/{}: {}", i + 1, total, display_path(p, home_dir.as_deref()));
+                    let _ = std::io::stderr().flush();
+                }
+                match git::inspect_repo(p) {
+                    Ok(info) => result.push(info),
+                    Err(e) => {
+                        eprint!("\r\x1b[K");
+                        eprintln!("Warning: failed to inspect {}: {}", p.display(), e);
+                    }
+                }
+            }
+            eprint!("\r\x1b[K");
+            let _ = std::io::stderr().flush();
+
+            // Write initial cache
+            let paths: Vec<PathBuf> = result.iter().map(|r| r.path.clone()).collect();
+            grove::cache::save(&scan_path, &paths);
+
+            result
+        };
+
+        repos.sort_by_key(|r| r.risk_level());
         let mut app = grove::tui::App::new(repos, scan_path, opts, home_dir);
+
+        if cached_paths.is_some() {
+            app.start_background_scan();
+        }
+
         grove::tui::run(&mut app)?;
     } else {
+        // Non-interactive: always full scan
+        let mut last_update = Instant::now();
+        let repo_paths = scanner::scan_repos_with_progress(&scan_path, &opts, |progress| {
+            let now = Instant::now();
+            if now.duration_since(last_update).as_millis() < 80 {
+                return;
+            }
+            last_update = now;
+            let dir_display = display_path(progress.current_dir, home_dir.as_deref());
+            let max_len = 60;
+            let dir_short = if dir_display.len() > max_len {
+                format!("...{}", &dir_display[dir_display.len() - max_len + 3..])
+            } else {
+                dir_display
+            };
+            eprint!(
+                "\r\x1b[KScanning: {} dirs | {} repos found | {}",
+                progress.dirs_scanned, progress.repos_found, dir_short
+            );
+            let _ = std::io::stderr().flush();
+        });
+        eprint!("\r\x1b[K");
+        let _ = std::io::stderr().flush();
+
+        let mut repos: Vec<RepoInfo> = repo_paths
+            .iter()
+            .filter_map(|p| match git::inspect_repo(p) {
+                Ok(info) => Some(info),
+                Err(e) => {
+                    eprintln!("Warning: failed to inspect {}: {}", p.display(), e);
+                    None
+                }
+            })
+            .collect();
+
+        repos.sort_by_key(|r| r.risk_level());
         static_output::print_static(&repos, home_dir.as_deref());
     }
 
