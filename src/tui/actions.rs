@@ -10,6 +10,15 @@ use ratatui::{backend::CrosstermBackend, Terminal};
 
 use super::App;
 
+/// Re-inspect a single repo and update app state.
+fn refresh_repo(app: &mut App, path: &std::path::Path) {
+    if let Ok(updated) = crate::git::inspect_repo(path)
+        && let Some(repo) = app.repos.iter_mut().find(|r| r.path == path) {
+            *repo = updated;
+        }
+    app.resort_and_reselect(path);
+}
+
 /// Suspend TUI, run a command, then restore TUI.
 fn suspend_and_run(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
@@ -32,50 +41,62 @@ fn suspend_and_run(
 }
 
 pub fn open_shell(
-    app: &App,
+    app: &mut App,
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
 ) -> Result<()> {
     let Some(info) = app.selected_repo() else { return Ok(()) };
+    let path = info.path.clone();
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "bash".into());
     let mut cmd = Command::new(&shell);
-    cmd.current_dir(&info.path);
-    suspend_and_run(terminal, cmd)
+    cmd.current_dir(&path);
+    suspend_and_run(terminal, cmd)?;
+    refresh_repo(app, &path);
+    Ok(())
 }
 
 pub fn open_editor(
-    app: &App,
+    app: &mut App,
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
 ) -> Result<()> {
     let Some(info) = app.selected_repo() else { return Ok(()) };
+    let path = info.path.clone();
     let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vi".into());
     let mut cmd = Command::new(&editor);
-    cmd.arg(".").current_dir(&info.path);
-    suspend_and_run(terminal, cmd)
+    cmd.arg(".").current_dir(&path);
+    suspend_and_run(terminal, cmd)?;
+    refresh_repo(app, &path);
+    Ok(())
 }
 
 pub fn launch_claude(
-    app: &App,
+    app: &mut App,
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     dangerously_skip_permissions: bool,
 ) -> Result<()> {
     let Some(info) = app.selected_repo() else { return Ok(()) };
+    let path = info.path.clone();
     let mut cmd = Command::new("claude");
     if dangerously_skip_permissions {
         cmd.arg("--dangerously-skip-permissions");
     }
-    cmd.current_dir(&info.path);
-    suspend_and_run(terminal, cmd)
+    cmd.current_dir(&path);
+    suspend_and_run(terminal, cmd)?;
+    refresh_repo(app, &path);
+    Ok(())
 }
 
 pub fn launch_lazygit(
-    app: &App,
+    app: &mut App,
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
 ) -> Result<()> {
     let Some(info) = app.selected_repo() else { return Ok(()) };
     if !app.has_lazygit { return Ok(()) }
+    let path = info.path.clone();
     let mut cmd = Command::new("lazygit");
-    cmd.current_dir(&info.path);
-    suspend_and_run(terminal, cmd)
+    cmd.current_dir(&path);
+    suspend_and_run(terminal, cmd)?;
+    refresh_repo(app, &path);
+    Ok(())
 }
 
 pub fn git_push(app: &mut App) -> Result<()> {
@@ -88,11 +109,7 @@ pub fn git_push(app: &mut App) -> Result<()> {
         .current_dir(&path)
         .output()?;
 
-    if let Ok(updated) = crate::git::inspect_repo(&path)
-        && let Some(repo) = app.repos.iter_mut().find(|r| r.path == path) {
-            *repo = updated;
-        }
-    app.resort_and_reselect(&path);
+    refresh_repo(app, &path);
     Ok(())
 }
 
@@ -106,11 +123,7 @@ pub fn git_fetch(app: &mut App) -> Result<()> {
         .current_dir(&path)
         .output()?;
 
-    if let Ok(updated) = crate::git::inspect_repo(&path)
-        && let Some(repo) = app.repos.iter_mut().find(|r| r.path == path) {
-            *repo = updated;
-        }
-    app.resort_and_reselect(&path);
+    refresh_repo(app, &path);
     Ok(())
 }
 
@@ -124,11 +137,7 @@ pub fn git_pull(app: &mut App) -> Result<()> {
         .current_dir(&path)
         .output()?;
 
-    if let Ok(updated) = crate::git::inspect_repo(&path)
-        && let Some(repo) = app.repos.iter_mut().find(|r| r.path == path) {
-            *repo = updated;
-        }
-    app.resort_and_reselect(&path);
+    refresh_repo(app, &path);
     Ok(())
 }
 

@@ -50,6 +50,15 @@ fn risk_color(level: RiskLevel) -> Color {
     }
 }
 
+fn truncate_name(name: &str, max_width: usize) -> String {
+    if name.chars().count() <= max_width {
+        name.to_string()
+    } else {
+        let truncated: String = name.chars().take(max_width.saturating_sub(1)).collect();
+        format!("{truncated}\u{2026}")
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Header
 // ---------------------------------------------------------------------------
@@ -98,12 +107,13 @@ fn draw_header(f: &mut Frame, app: &App, area: Rect) {
 // ---------------------------------------------------------------------------
 
 fn draw_repo_list(f: &mut Frame, app: &mut App, area: Rect) {
-    // Compute column widths from display_rows (min widths = header labels)
+    // Compute ideal column widths from display_rows (min widths = header labels)
     let mut name_w = 4_usize;   // "REPO"
     let mut branch_w = 6_usize; // "BRANCH"
     let mut status_w = 6_usize; // "STATUS"
     let mut stash_w = 5_usize;  // "STASH"
     let mut remote_w = 6_usize; // "REMOTE"
+    let mut sync_w = 4_usize;   // "SYNC"
 
     for row in &app.display_rows {
         let full_name_len = row.tree_prefix().len() + row.display_name().len();
@@ -114,18 +124,71 @@ fn draw_repo_list(f: &mut Frame, app: &mut App, area: Rect) {
                 status_w = status_w.max(repo.status_summary().len());
                 stash_w = stash_w.max(repo.stash_summary().len());
                 remote_w = remote_w.max(repo.remote_name.as_deref().unwrap_or("\u{2014}").len());
+                let sync = repo.sync_summary();
+                if !sync.is_empty() {
+                    sync_w = sync_w.max(sync.len());
+                }
             }
         }
     }
 
-    // Render the outer block first, then split inner area into header + list
     let mode_label = match app.sort_mode {
         SortMode::Tree => "tree",
         SortMode::Dirty => "dirty-first",
     };
+
+    // Determine available width from block inner area
+    let block_probe = Block::default().borders(Borders::ALL);
+    let available = block_probe.inner(area).width as usize;
+
+    // Fitting algorithm: compute non-name width, give name the remainder.
+    // If name budget < min_name_w, hide columns right-to-left (sync, remote, stash).
+    let sep = 2_usize;
+    let highlight_w = 2_usize; // "▸ "
+    let min_name_w = 10_usize;
+
+    let non_name_width = |stash: bool, remote: bool, sync: bool| -> usize {
+        let mut w = highlight_w + sep + branch_w + sep + status_w;
+        if stash { w += sep + stash_w; }
+        if remote { w += sep + remote_w; }
+        if sync { w += sep + sync_w; }
+        w
+    };
+
+    let mut show_stash = true;
+    let mut show_remote = true;
+    let mut show_sync = true;
+
+    let mut name_budget = available.saturating_sub(non_name_width(true, true, true));
+
+    if name_budget < min_name_w {
+        show_sync = false;
+        name_budget = available.saturating_sub(non_name_width(true, true, false));
+    }
+    if name_budget < min_name_w {
+        show_remote = false;
+        name_budget = available.saturating_sub(non_name_width(true, false, false));
+    }
+    if name_budget < min_name_w {
+        show_stash = false;
+        name_budget = available.saturating_sub(non_name_width(false, false, false));
+    }
+
+    let actual_name_w = name_w.min(name_budget);
+    let hidden_count = [!show_stash, !show_remote, !show_sync].iter().filter(|&&h| h).count();
+
+    let title = if hidden_count > 0 {
+        format!(
+            "Repos ({mode_label}, {hidden_count} col{} hidden)",
+            if hidden_count == 1 { "" } else { "s" },
+        )
+    } else {
+        format!("Repos ({mode_label})")
+    };
+
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(format!("Repos ({mode_label})"));
+        .title(title);
 
     let inner = block.inner(area);
     f.render_widget(block, area);
@@ -142,10 +205,10 @@ fn draw_repo_list(f: &mut Frame, app: &mut App, area: Rect) {
     };
 
     // Fixed column header (indented to align with highlight_symbol "▸ ")
-    let header_line = Line::from(vec![
+    let mut header_spans = vec![
         Span::raw("  "),
         Span::styled(
-            format!("{:<w$}", "REPO", w = name_w),
+            format!("{:<w$}", "REPO", w = actual_name_w),
             Style::default().fg(Color::DarkGray),
         ),
         Span::raw("  "),
@@ -158,20 +221,27 @@ fn draw_repo_list(f: &mut Frame, app: &mut App, area: Rect) {
             format!("{:<w$}", "STATUS", w = status_w),
             Style::default().fg(Color::DarkGray),
         ),
-        Span::raw("  "),
-        Span::styled(
+    ];
+    if show_stash {
+        header_spans.push(Span::raw("  "));
+        header_spans.push(Span::styled(
             format!("{:<w$}", "STASH", w = stash_w),
             Style::default().fg(Color::DarkGray),
-        ),
-        Span::raw("  "),
-        Span::styled(
+        ));
+    }
+    if show_remote {
+        header_spans.push(Span::raw("  "));
+        header_spans.push(Span::styled(
             format!("{:<w$}", "REMOTE", w = remote_w),
             Style::default().fg(Color::DarkGray),
-        ),
-        Span::raw("  "),
-        Span::styled("SYNC", Style::default().fg(Color::DarkGray)),
-    ]);
-    f.render_widget(Paragraph::new(header_line), header_area);
+        ));
+    }
+    if show_sync {
+        header_spans.push(Span::raw("  "));
+        header_spans.push(Span::styled("SYNC", Style::default().fg(Color::DarkGray)));
+    }
+
+    f.render_widget(Paragraph::new(Line::from(header_spans)), header_area);
 
     // Scrollable repo list
     let items: Vec<ListItem> = app
@@ -179,11 +249,12 @@ fn draw_repo_list(f: &mut Frame, app: &mut App, area: Rect) {
         .iter()
         .map(|row| match row {
             DisplayRow::Directory { name, tree_prefix } => {
-                let line = Line::from(vec![Span::styled(
-                    format!("{tree_prefix}{name}"),
+                let full = format!("{tree_prefix}{name}");
+                let display = truncate_name(&full, actual_name_w);
+                ListItem::new(Line::from(vec![Span::styled(
+                    display,
                     Style::default().fg(Color::DarkGray),
-                )]);
-                ListItem::new(line)
+                )]))
             }
             DisplayRow::Repo {
                 repo_index,
@@ -193,11 +264,12 @@ fn draw_repo_list(f: &mut Frame, app: &mut App, area: Rect) {
                 let repo = &app.repos[*repo_index];
                 let color = risk_color(repo.risk_level());
                 let prefix_and_name = format!("{tree_prefix}{display_name}");
+                let display = truncate_name(&prefix_and_name, actual_name_w);
                 let remote_display = repo.remote_name.as_deref().unwrap_or("\u{2014}");
 
-                let line = Line::from(vec![
+                let mut spans = vec![
                     Span::styled(
-                        format!("{:<w$}", prefix_and_name, w = name_w),
+                        format!("{:<w$}", display, w = actual_name_w),
                         Style::default().fg(color),
                     ),
                     Span::raw("  "),
@@ -210,20 +282,26 @@ fn draw_repo_list(f: &mut Frame, app: &mut App, area: Rect) {
                         format!("{:<w$}", repo.status_summary(), w = status_w),
                         Style::default().fg(color),
                     ),
-                    Span::raw("  "),
-                    Span::styled(
+                ];
+                if show_stash {
+                    spans.push(Span::raw("  "));
+                    spans.push(Span::styled(
                         format!("{:<w$}", repo.stash_summary(), w = stash_w),
                         Style::default().fg(color),
-                    ),
-                    Span::raw("  "),
-                    Span::styled(
+                    ));
+                }
+                if show_remote {
+                    spans.push(Span::raw("  "));
+                    spans.push(Span::styled(
                         format!("{:<w$}", remote_display, w = remote_w),
                         Style::default().fg(color),
-                    ),
-                    Span::raw("  "),
-                    Span::styled(repo.sync_summary(), Style::default().fg(color)),
-                ]);
-                ListItem::new(line)
+                    ));
+                }
+                if show_sync {
+                    spans.push(Span::raw("  "));
+                    spans.push(Span::styled(repo.sync_summary(), Style::default().fg(color)));
+                }
+                ListItem::new(Line::from(spans))
             }
         })
         .collect();
@@ -404,4 +482,32 @@ fn append_key_hint<'a>(spans: &mut Vec<Span<'a>>, key: &'a str, rest: &'a str) {
     spans.push(Span::styled(key, Style::default().fg(Color::Cyan)));
     spans.push(Span::raw("]"));
     spans.push(Span::raw(rest));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn truncate_no_op_when_fits() {
+        assert_eq!(truncate_name("hello", 10), "hello");
+        assert_eq!(truncate_name("hello", 5), "hello");
+    }
+
+    #[test]
+    fn truncate_adds_ellipsis() {
+        assert_eq!(truncate_name("hello world", 6), "hello\u{2026}");
+        assert_eq!(truncate_name("abcdef", 5), "abcd\u{2026}");
+    }
+
+    #[test]
+    fn truncate_to_one() {
+        assert_eq!(truncate_name("hello", 1), "\u{2026}");
+    }
+
+    #[test]
+    fn truncate_empty_string() {
+        assert_eq!(truncate_name("", 5), "");
+        assert_eq!(truncate_name("", 0), "");
+    }
 }
