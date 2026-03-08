@@ -8,6 +8,7 @@ use ratatui::{
 
 use crate::model::RiskLevel;
 use super::App;
+use super::tree::{DisplayRow, SortMode};
 
 /// Main draw entry point called every tick by the event loop.
 pub fn draw(f: &mut Frame, app: &mut App) {
@@ -16,7 +17,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         .constraints([
             Constraint::Length(3),
             Constraint::Min(5),
-            Constraint::Length(if app.detail_expanded { 12 } else { 0 }),
+            Constraint::Length(if app.detail_expanded { 9 } else { 0 }),
             Constraint::Length(1),
         ])
         .split(f.area());
@@ -59,19 +60,19 @@ fn draw_header(f: &mut Frame, app: &App, area: Rect) {
         display_path(&app.scan_path, app.home_dir.as_deref())
     );
 
-    let at_risk = app.repos.iter().filter(|r| r.risk_level() == RiskLevel::AtRisk).count();
-    let warning = app.repos.iter().filter(|r| r.risk_level() == RiskLevel::Warning).count();
-    let safe = app.repos.iter().filter(|r| r.risk_level() == RiskLevel::Safe).count();
+    let total = app.repos.len();
+    let dirty = app.repos.iter().filter(|r| r.risk_level() != RiskLevel::Safe).count();
 
-    let summary = Line::from(vec![
-        Span::raw("Repositories ("),
-        Span::styled(format!("{at_risk}"), Style::default().fg(Color::Red)),
-        Span::raw(" at risk, "),
-        Span::styled(format!("{warning}"), Style::default().fg(Color::Yellow)),
-        Span::raw(" warning, "),
-        Span::styled(format!("{safe}"), Style::default().fg(Color::Green)),
-        Span::raw(" safe)"),
-    ]);
+    let summary = if dirty > 0 {
+        Line::from(vec![
+            Span::raw(format!("{total} repos, ")),
+            Span::styled(format!("{dirty} dirty"), Style::default().fg(Color::Red)),
+        ])
+    } else {
+        Line::from(vec![
+            Span::styled(format!("{total} repos, all clean"), Style::default().fg(Color::Green)),
+        ])
+    };
 
     let block = Block::default()
         .title(title)
@@ -86,70 +87,152 @@ fn draw_header(f: &mut Frame, app: &App, area: Rect) {
 // ---------------------------------------------------------------------------
 
 fn draw_repo_list(f: &mut Frame, app: &mut App, area: Rect) {
-    // Compute column widths from actual data
-    let mut path_w = 4_usize;
-    let mut branch_w = 6_usize;
-    let mut status_w = 6_usize;
-    for repo in &app.repos {
-        path_w = path_w.max(display_path(&repo.path, app.home_dir.as_deref()).len());
-        branch_w = branch_w.max(repo.branch_display().len());
-        status_w = status_w.max(repo.status_summary().len());
+    // Compute column widths from display_rows (min widths = header labels)
+    let mut name_w = 4_usize;   // "REPO"
+    let mut branch_w = 6_usize; // "BRANCH"
+    let mut status_w = 6_usize; // "STATUS"
+    let mut stash_w = 5_usize;  // "STASH"
+    let mut remote_w = 6_usize; // "REMOTE"
+
+    for row in &app.display_rows {
+        let full_name_len = row.tree_prefix().len() + row.display_name().len();
+        name_w = name_w.max(full_name_len);
+        if let Some(idx) = row.repo_index() {
+            if let Some(repo) = app.repos.get(idx) {
+                branch_w = branch_w.max(repo.branch_display().len());
+                status_w = status_w.max(repo.status_summary().len());
+                stash_w = stash_w.max(repo.stash_summary().len());
+                remote_w = remote_w.max(repo.remote_name.as_deref().unwrap_or("\u{2014}").len());
+            }
+        }
     }
 
+    // Render the outer block first, then split inner area into header + list
+    let mode_label = match app.sort_mode {
+        SortMode::Tree => "tree",
+        SortMode::Dirty => "dirty-first",
+    };
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(format!("Repos ({mode_label})"));
+
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    if inner.height < 2 {
+        return;
+    }
+
+    let header_area = Rect { height: 1, ..inner };
+    let list_area = Rect {
+        y: inner.y + 1,
+        height: inner.height - 1,
+        ..inner
+    };
+
+    // Fixed column header (indented to align with highlight_symbol "▸ ")
+    let header_line = Line::from(vec![
+        Span::raw("  "),
+        Span::styled(
+            format!("{:<w$}", "REPO", w = name_w),
+            Style::default().fg(Color::DarkGray),
+        ),
+        Span::raw("  "),
+        Span::styled(
+            format!("{:<w$}", "BRANCH", w = branch_w),
+            Style::default().fg(Color::DarkGray),
+        ),
+        Span::raw("  "),
+        Span::styled(
+            format!("{:<w$}", "STATUS", w = status_w),
+            Style::default().fg(Color::DarkGray),
+        ),
+        Span::raw("  "),
+        Span::styled(
+            format!("{:<w$}", "STASH", w = stash_w),
+            Style::default().fg(Color::DarkGray),
+        ),
+        Span::raw("  "),
+        Span::styled(
+            format!("{:<w$}", "REMOTE", w = remote_w),
+            Style::default().fg(Color::DarkGray),
+        ),
+        Span::raw("  "),
+        Span::styled("SYNC", Style::default().fg(Color::DarkGray)),
+    ]);
+    f.render_widget(Paragraph::new(header_line), header_area);
+
+    // Scrollable repo list
     let items: Vec<ListItem> = app
-        .repos
+        .display_rows
         .iter()
-        .map(|repo| {
-            let color = risk_color(repo.risk_level());
-            let path_str = display_path(&repo.path, app.home_dir.as_deref());
+        .map(|row| match row {
+            DisplayRow::Directory { name, tree_prefix } => {
+                let line = Line::from(vec![Span::styled(
+                    format!("{tree_prefix}{name}"),
+                    Style::default().fg(Color::DarkGray),
+                )]);
+                ListItem::new(line)
+            }
+            DisplayRow::Repo {
+                repo_index,
+                display_name,
+                tree_prefix,
+            } => {
+                let repo = &app.repos[*repo_index];
+                let color = risk_color(repo.risk_level());
+                let prefix_and_name = format!("{tree_prefix}{display_name}");
+                let remote_display = repo.remote_name.as_deref().unwrap_or("\u{2014}");
 
-            let line = Line::from(vec![
-                Span::styled(
-                    format!("{:<w$}", path_str, w = path_w),
-                    Style::default().fg(color),
-                ),
-                Span::raw("  "),
-                Span::styled(
-                    format!("{:<w$}", repo.branch_display(), w = branch_w),
-                    Style::default().fg(Color::Cyan),
-                ),
-                Span::raw("  "),
-                Span::styled(
-                    format!("{:<w$}", repo.status_summary(), w = status_w),
-                    Style::default().fg(color),
-                ),
-                Span::raw("  "),
-                Span::styled(
-                    repo.sync_summary(),
-                    Style::default().fg(color),
-                ),
-            ]);
-
-            ListItem::new(line)
+                let line = Line::from(vec![
+                    Span::styled(
+                        format!("{:<w$}", prefix_and_name, w = name_w),
+                        Style::default().fg(color),
+                    ),
+                    Span::raw("  "),
+                    Span::styled(
+                        format!("{:<w$}", repo.branch_display(), w = branch_w),
+                        Style::default().fg(Color::Cyan),
+                    ),
+                    Span::raw("  "),
+                    Span::styled(
+                        format!("{:<w$}", repo.status_summary(), w = status_w),
+                        Style::default().fg(color),
+                    ),
+                    Span::raw("  "),
+                    Span::styled(
+                        format!("{:<w$}", repo.stash_summary(), w = stash_w),
+                        Style::default().fg(color),
+                    ),
+                    Span::raw("  "),
+                    Span::styled(
+                        format!("{:<w$}", remote_display, w = remote_w),
+                        Style::default().fg(color),
+                    ),
+                    Span::raw("  "),
+                    Span::styled(repo.sync_summary(), Style::default().fg(color)),
+                ]);
+                ListItem::new(line)
+            }
         })
         .collect();
 
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .title("Repos");
-
     let list = List::new(items)
-        .block(block)
         .highlight_symbol("▸ ")
         .highlight_style(Style::default().add_modifier(Modifier::BOLD));
 
-    f.render_stateful_widget(list, area, &mut app.list_state);
+    f.render_stateful_widget(list, list_area, &mut app.list_state);
 
-    // Scrollbar — use ListState's scroll offset, not the selected index
-    let visible = area.height.saturating_sub(2) as usize;
-    if app.repos.len() > visible {
+    // Scrollbar
+    let visible = list_area.height as usize;
+    if app.display_rows.len() > visible {
         let scroll_offset = app.list_state.offset();
-        let mut scrollbar_state = ScrollbarState::new(app.repos.len().saturating_sub(visible))
+        let mut scrollbar_state = ScrollbarState::new(app.display_rows.len().saturating_sub(visible))
             .position(scroll_offset);
         let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
             .begin_symbol(None)
             .end_symbol(None);
-        f.render_stateful_widget(scrollbar, area.inner(ratatui::layout::Margin { vertical: 1, horizontal: 0 }), &mut scrollbar_state);
+        f.render_stateful_widget(scrollbar, list_area, &mut scrollbar_state);
     }
 }
 
@@ -285,6 +368,7 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
     }
 
     // Always-present keys
+    append_key_hint(&mut spans, "o", "rder");
     append_key_hint(&mut spans, "s", "hell");
     append_key_hint(&mut spans, "e", "ditor");
     append_key_hint(&mut spans, "c", "laude");

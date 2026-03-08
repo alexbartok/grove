@@ -19,6 +19,15 @@ pub fn print_static(repos: &[RepoInfo], home_dir: Option<&std::path::Path>) {
 
     let widths = compute_widths(repos, home_dir);
 
+    // Summary
+    let total = repos.len();
+    let dirty = repos.iter().filter(|r| r.risk_level() != RiskLevel::Safe).count();
+    if dirty > 0 {
+        println!("{total} repos, {dirty} dirty\n");
+    } else {
+        println!("{total} repos, all clean\n");
+    }
+
     // Header
     println!(
         "{:<rw$}  {:<bw$}  {:<sw$}  {:<tw$}  {:<mw$}  SYNC",
@@ -151,7 +160,7 @@ mod tests {
         assert!(row.contains("main"));
         assert!(row.contains("✓ clean"));
         assert!(row.contains("origin"));
-        assert!(row.contains("✓ synced"));
+        assert!(row.contains("✓ clean"));
     }
 
     #[test]

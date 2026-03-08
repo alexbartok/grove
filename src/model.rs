@@ -108,7 +108,7 @@ impl RepoInfo {
             (true, true) => format!("\u{2191}{} \u{2193}{}", self.ahead, self.behind),
             (true, false) => format!("\u{2191}{} ahead", self.ahead),
             (false, true) => format!("\u{2193}{} behind", self.behind),
-            (false, false) => "\u{2713} synced".to_string(),
+            (false, false) => String::new(),
         }
     }
 }
@@ -308,7 +308,7 @@ mod tests {
     #[test]
     fn test_sync_summary_synced() {
         let repo = default_repo();
-        assert_eq!(repo.sync_summary(), "✓ synced");
+        assert_eq!(repo.sync_summary(), "");
     }
 
     #[test]
@@ -330,8 +330,8 @@ mod tests {
         let mut repo = default_repo();
         repo.has_upstream = false;
         repo.is_detached = true;
-        // detached heads without upstream should show synced, not "no tracking"
-        assert_eq!(repo.sync_summary(), "✓ synced");
+        // detached heads without upstream should show empty, not "no tracking"
+        assert_eq!(repo.sync_summary(), "");
     }
 
     #[test]

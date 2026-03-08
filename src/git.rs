@@ -278,7 +278,7 @@ mod tests {
     #[test]
     fn test_stash_count() {
         let tmp = TempDir::new().unwrap();
-        let repo = init_repo(tmp.path());
+        let mut repo = init_repo(tmp.path());
 
         fs::write(tmp.path().join("file.txt"), "hello").unwrap();
         {

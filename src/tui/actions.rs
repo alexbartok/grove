@@ -81,7 +81,7 @@ pub fn git_push(app: &mut App) -> Result<()> {
         && let Some(repo) = app.repos.iter_mut().find(|r| r.path == path) {
             *repo = updated;
         }
-    app.repos.sort_by_key(|r| r.risk_level());
+    app.resort_and_reselect(&path);
     Ok(())
 }
 
@@ -99,7 +99,7 @@ pub fn git_fetch(app: &mut App) -> Result<()> {
         && let Some(repo) = app.repos.iter_mut().find(|r| r.path == path) {
             *repo = updated;
         }
-    app.repos.sort_by_key(|r| r.risk_level());
+    app.resort_and_reselect(&path);
     Ok(())
 }
 
@@ -117,7 +117,7 @@ pub fn git_pull(app: &mut App) -> Result<()> {
         && let Some(repo) = app.repos.iter_mut().find(|r| r.path == path) {
             *repo = updated;
         }
-    app.repos.sort_by_key(|r| r.risk_level());
+    app.resort_and_reselect(&path);
     Ok(())
 }
 

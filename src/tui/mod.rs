@@ -1,4 +1,5 @@
 pub mod actions;
+pub mod tree;
 pub mod ui;
 
 use std::io;
@@ -13,6 +14,7 @@ use crossterm::{
 use ratatui::{backend::CrosstermBackend, widgets::ListState, Terminal};
 
 use crate::model::RepoInfo;
+use tree::{DisplayRow, SortMode};
 
 pub struct App {
     pub repos: Vec<RepoInfo>,
@@ -23,6 +25,8 @@ pub struct App {
     pub scan_path: std::path::PathBuf,
     pub scan_options: crate::scanner::ScanOptions,
     pub home_dir: Option<std::path::PathBuf>,
+    pub sort_mode: SortMode,
+    pub display_rows: Vec<DisplayRow>,
 }
 
 impl App {
@@ -32,53 +36,155 @@ impl App {
         scan_options: crate::scanner::ScanOptions,
         home_dir: Option<std::path::PathBuf>,
     ) -> Self {
-        let mut list_state = ListState::default();
-        if !repos.is_empty() {
-            list_state.select(Some(0));
-        }
-        Self {
+        let mut app = Self {
             repos,
             selected: 0,
-            list_state,
+            list_state: ListState::default(),
             detail_expanded: true,
             should_quit: false,
             scan_path,
             scan_options,
             home_dir,
-        }
+            sort_mode: SortMode::Tree,
+            display_rows: Vec::new(),
+        };
+        app.rebuild_display_rows();
+        app.select_first_repo();
+        app
     }
 
     pub fn selected_repo(&self) -> Option<&RepoInfo> {
-        self.repos.get(self.selected)
+        let row = self.display_rows.get(self.selected)?;
+        let idx = row.repo_index()?;
+        self.repos.get(idx)
     }
 
     pub fn next(&mut self) {
-        if !self.repos.is_empty() {
-            self.selected = (self.selected + 1).min(self.repos.len() - 1);
-            self.list_state.select(Some(self.selected));
+        let len = self.display_rows.len();
+        if len == 0 {
+            return;
+        }
+        let mut pos = self.selected + 1;
+        while pos < len {
+            if self.display_rows[pos].repo_index().is_some() {
+                self.selected = pos;
+                self.list_state.select(Some(pos));
+                return;
+            }
+            pos += 1;
         }
     }
 
     pub fn previous(&mut self) {
-        self.selected = self.selected.saturating_sub(1);
-        self.list_state.select(Some(self.selected));
+        if self.selected == 0 {
+            return;
+        }
+        let mut pos = self.selected - 1;
+        loop {
+            if self.display_rows[pos].repo_index().is_some() {
+                self.selected = pos;
+                self.list_state.select(Some(pos));
+                return;
+            }
+            if pos == 0 {
+                break;
+            }
+            pos -= 1;
+        }
     }
 
     pub fn toggle_detail(&mut self) {
         self.detail_expanded = !self.detail_expanded;
     }
 
+    pub fn toggle_sort(&mut self) {
+        let current_repo_index = self
+            .display_rows
+            .get(self.selected)
+            .and_then(|r| r.repo_index());
+
+        self.sort_mode = match self.sort_mode {
+            SortMode::Tree => SortMode::Dirty,
+            SortMode::Dirty => SortMode::Tree,
+        };
+
+        self.rebuild_display_rows();
+
+        if let Some(repo_idx) = current_repo_index {
+            for (i, row) in self.display_rows.iter().enumerate() {
+                if row.repo_index() == Some(repo_idx) {
+                    self.selected = i;
+                    self.list_state.select(Some(i));
+                    return;
+                }
+            }
+        }
+
+        self.select_first_repo();
+    }
+
     pub fn refresh_all(&mut self) {
+        let current_path = self.selected_repo().map(|r| r.path.clone());
+
         let repo_paths = crate::scanner::scan_repos(&self.scan_path, &self.scan_options);
         self.repos = repo_paths
             .iter()
             .filter_map(|p| crate::git::inspect_repo(p).ok())
             .collect();
         self.repos.sort_by_key(|r| r.risk_level());
-        if self.selected >= self.repos.len() {
-            self.selected = self.repos.len().saturating_sub(1);
+
+        self.rebuild_display_rows();
+
+        if let Some(path) = current_path {
+            for (i, row) in self.display_rows.iter().enumerate() {
+                if let Some(idx) = row.repo_index() {
+                    if self.repos[idx].path == path {
+                        self.selected = i;
+                        self.list_state.select(Some(i));
+                        return;
+                    }
+                }
+            }
         }
-        self.list_state.select(if self.repos.is_empty() { None } else { Some(self.selected) });
+
+        self.select_first_repo();
+    }
+
+    /// Re-sort repos and rebuild display rows, preserving selection on the given path.
+    pub fn resort_and_reselect(&mut self, target_path: &std::path::Path) {
+        self.repos.sort_by_key(|r| r.risk_level());
+        self.rebuild_display_rows();
+
+        for (i, row) in self.display_rows.iter().enumerate() {
+            if let Some(idx) = row.repo_index() {
+                if self.repos[idx].path == *target_path {
+                    self.selected = i;
+                    self.list_state.select(Some(i));
+                    return;
+                }
+            }
+        }
+
+        self.select_first_repo();
+    }
+
+    fn rebuild_display_rows(&mut self) {
+        self.display_rows = match self.sort_mode {
+            SortMode::Tree => tree::build_tree_rows(&self.repos, &self.scan_path),
+            SortMode::Dirty => tree::build_flat_rows(&self.repos, self.home_dir.as_deref()),
+        };
+    }
+
+    fn select_first_repo(&mut self) {
+        for (i, row) in self.display_rows.iter().enumerate() {
+            if row.repo_index().is_some() {
+                self.selected = i;
+                self.list_state.select(Some(i));
+                return;
+            }
+        }
+        self.selected = 0;
+        self.list_state.select(None);
     }
 }
 
@@ -126,6 +232,7 @@ fn handle_key(
         KeyCode::Down | KeyCode::Char('j') => app.next(),
         KeyCode::Up | KeyCode::Char('k') => app.previous(),
         KeyCode::Enter => app.toggle_detail(),
+        KeyCode::Char('o') => app.toggle_sort(),
         KeyCode::Char('r') => app.refresh_all(),
         KeyCode::Char('s') => actions::open_shell(app, terminal)?,
         KeyCode::Char('e') => actions::open_editor(app, terminal)?,
