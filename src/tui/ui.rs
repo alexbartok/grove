@@ -141,9 +141,11 @@ fn draw_repo_list(f: &mut Frame, app: &mut App, area: Rect) {
     f.render_stateful_widget(list, area, &mut app.list_state);
 
     // Scrollbar
-    if app.repos.len() > area.height.saturating_sub(2) as usize {
-        let mut scrollbar_state = ScrollbarState::new(app.repos.len())
-            .position(app.selected);
+    let visible = area.height.saturating_sub(2) as usize; // subtract border rows
+    if app.repos.len() > visible {
+        let max_scroll = app.repos.len().saturating_sub(visible);
+        let mut scrollbar_state = ScrollbarState::new(max_scroll)
+            .position(app.selected.min(max_scroll));
         let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
             .begin_symbol(None)
             .end_symbol(None);
