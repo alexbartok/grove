@@ -1,0 +1,17 @@
+{
+  "planPath": "docs/plans/2026-03-08-grove-implementation.md",
+  "tasks": [
+    {"id": 1, "subject": "Task 1: Project Scaffolding", "status": "pending"},
+    {"id": 2, "subject": "Task 2: Data Model (model.rs)", "status": "pending", "blockedBy": [1]},
+    {"id": 3, "subject": "Task 3: CLI Argument Parsing", "status": "pending", "blockedBy": [1]},
+    {"id": 4, "subject": "Task 4: Filesystem Scanner (scanner.rs)", "status": "pending", "blockedBy": [1]},
+    {"id": 5, "subject": "Task 5: Git Status Inspection (git.rs)", "status": "pending", "blockedBy": [2]},
+    {"id": 6, "subject": "Task 6: Static Output (static_output.rs)", "status": "pending", "blockedBy": [2]},
+    {"id": 7, "subject": "Task 7: Wire Up Static Mode End-to-End", "status": "pending", "blockedBy": [3, 4, 5, 6]},
+    {"id": 8, "subject": "Task 8: TUI App State and Event Loop (tui/mod.rs)", "status": "pending", "blockedBy": [2]},
+    {"id": 9, "subject": "Task 9: TUI Rendering (tui/ui.rs)", "status": "pending", "blockedBy": [8]},
+    {"id": 10, "subject": "Task 10: TUI Actions (tui/actions.rs)", "status": "pending", "blockedBy": [8, 9]},
+    {"id": 11, "subject": "Task 11: Polish and Edge Cases", "status": "pending", "blockedBy": [7, 10]}
+  ],
+  "lastUpdated": "2026-03-08T21:00:00Z"
+}
