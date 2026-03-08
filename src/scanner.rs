@@ -35,11 +35,10 @@ fn walk(
     }
 
     // Check depth limit
-    if let Some(max) = opts.max_depth {
-        if depth >= max {
+    if let Some(max) = opts.max_depth
+        && depth >= max {
             return;
         }
-    }
 
     // Read directory entries
     let entries = match fs::read_dir(dir) {
@@ -65,13 +64,11 @@ fn walk(
         }
 
         // Check filesystem boundary
-        if !opts.cross_filesystems {
-            if let Some(root_dev) = root_dev {
-                if device_id(&path) != Some(root_dev) {
+        if !opts.cross_filesystems
+            && let Some(root_dev) = root_dev
+                && device_id(&path) != Some(root_dev) {
                     continue;
                 }
-            }
-        }
 
         walk(&path, opts, depth + 1, root_dev, repos);
     }

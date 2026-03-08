@@ -21,13 +21,12 @@ pub fn print_static(repos: &[RepoInfo], home_dir: Option<&std::path::Path>) {
 
     // Header
     println!(
-        "{:<rw$}  {:<bw$}  {:<sw$}  {:<tw$}  {:<mw$}  {}",
+        "{:<rw$}  {:<bw$}  {:<sw$}  {:<tw$}  {:<mw$}  SYNC",
         "REPO",
         "BRANCH",
         "STATUS",
         "STASH",
         "REMOTE",
-        "SYNC",
         rw = widths.repo,
         bw = widths.branch,
         sw = widths.status,
@@ -46,11 +45,10 @@ pub fn print_static(repos: &[RepoInfo], home_dir: Option<&std::path::Path>) {
 }
 
 fn display_path(path: &std::path::Path, home_dir: Option<&std::path::Path>) -> String {
-    if let Some(home) = home_dir {
-        if let Ok(stripped) = path.strip_prefix(home) {
+    if let Some(home) = home_dir
+        && let Ok(stripped) = path.strip_prefix(home) {
             return format!("~/{}", stripped.display());
         }
-    }
     path.display().to_string()
 }
 

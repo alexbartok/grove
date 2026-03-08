@@ -92,11 +92,10 @@ fn run_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut App
     loop {
         terminal.draw(|f| ui::draw(f, app))?;
 
-        if event::poll(Duration::from_millis(100))? {
-            if let Event::Key(key) = event::read()? {
+        if event::poll(Duration::from_millis(100))?
+            && let Event::Key(key) = event::read()? {
                 handle_key(key, app, terminal)?;
             }
-        }
 
         if app.should_quit {
             break;

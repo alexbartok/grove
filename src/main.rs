@@ -1,3 +1,4 @@
+use std::io::IsTerminal;
 use std::path::PathBuf;
 
 use anyhow::Result;
@@ -35,9 +36,9 @@ struct Args {
 
 fn main() -> Result<()> {
     let args = Args::parse();
-    let interactive = !args.no_interactive && atty::is(atty::Stream::Stdout);
+    let interactive = !args.no_interactive && std::io::stdout().is_terminal();
     let scan_path = args.path.canonicalize()?;
-    let home_dir = dirs::home_dir();
+    let home_dir = std::env::var("HOME").ok().map(PathBuf::from);
 
     let opts = ScanOptions {
         include_hidden: args.hidden,

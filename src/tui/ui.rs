@@ -6,7 +6,7 @@ use ratatui::{
     Frame,
 };
 
-use crate::model::{RepoInfo, RiskLevel};
+use crate::model::RiskLevel;
 use super::App;
 
 /// Main draw entry point called every tick by the event loop.
@@ -34,11 +34,10 @@ pub fn draw(f: &mut Frame, app: &App) {
 // ---------------------------------------------------------------------------
 
 fn display_path(path: &std::path::Path, home: Option<&std::path::Path>) -> String {
-    if let Some(home) = home {
-        if let Ok(stripped) = path.strip_prefix(home) {
+    if let Some(home) = home
+        && let Ok(stripped) = path.strip_prefix(home) {
             return format!("~/{}", stripped.display());
         }
-    }
     path.display().to_string()
 }
 

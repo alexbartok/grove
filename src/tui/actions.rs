@@ -77,11 +77,10 @@ pub fn git_push(app: &mut App) -> Result<()> {
         .current_dir(&path)
         .output()?;
 
-    if let Ok(updated) = crate::git::inspect_repo(&path) {
-        if let Some(repo) = app.repos.iter_mut().find(|r| r.path == path) {
+    if let Ok(updated) = crate::git::inspect_repo(&path)
+        && let Some(repo) = app.repos.iter_mut().find(|r| r.path == path) {
             *repo = updated;
         }
-    }
     app.repos.sort_by_key(|r| r.risk_level());
     Ok(())
 }
@@ -96,11 +95,10 @@ pub fn git_fetch(app: &mut App) -> Result<()> {
         .current_dir(&path)
         .output()?;
 
-    if let Ok(updated) = crate::git::inspect_repo(&path) {
-        if let Some(repo) = app.repos.iter_mut().find(|r| r.path == path) {
+    if let Ok(updated) = crate::git::inspect_repo(&path)
+        && let Some(repo) = app.repos.iter_mut().find(|r| r.path == path) {
             *repo = updated;
         }
-    }
     app.repos.sort_by_key(|r| r.risk_level());
     Ok(())
 }
@@ -115,11 +113,10 @@ pub fn git_pull(app: &mut App) -> Result<()> {
         .current_dir(&path)
         .output()?;
 
-    if let Ok(updated) = crate::git::inspect_repo(&path) {
-        if let Some(repo) = app.repos.iter_mut().find(|r| r.path == path) {
+    if let Ok(updated) = crate::git::inspect_repo(&path)
+        && let Some(repo) = app.repos.iter_mut().find(|r| r.path == path) {
             *repo = updated;
         }
-    }
     app.repos.sort_by_key(|r| r.risk_level());
     Ok(())
 }
