@@ -1,8 +1,6 @@
 # Grove
 
-A CLI tool that answers: **"If this machine died right now, would I lose any work?"**
-
-Grove scans a directory tree for git repositories and shows their safety status at a glance. Repos with uncommitted changes, unpushed commits, missing remotes, or stashes are surfaced immediately — colored red so you can't miss them.
+Scans a directory tree for git repositories and shows you which ones have uncommitted work, unpushed commits, or no remote. If your machine died right now, Grove tells you what you'd lose.
 
 ## Install
 
@@ -18,31 +16,24 @@ Requires Rust 1.85+ (2024 edition).
 grove [OPTIONS] [PATH]
 ```
 
-By default, Grove launches an interactive TUI. If stdout is not a TTY (e.g. piped), it falls back to static columnar output.
+Opens an interactive TUI by default. When stdout isn't a TTY (piped, redirected), it prints static columnar output instead.
 
 ### Options
 
 | Flag | Description |
 |------|-------------|
 | `[PATH]` | Directory to scan (default: `.`) |
-| `-n`, `--no-interactive` | Force static output mode |
-| `-H`, `--hidden` | Include hidden directories in traversal |
-| `-d`, `--max-depth <N>` | Limit directory traversal depth |
+| `-n`, `--no-interactive` | Static output, no TUI |
+| `-H`, `--hidden` | Include hidden directories |
+| `-d`, `--max-depth <N>` | Limit traversal depth |
 | `--all-filesystems` | Cross filesystem boundaries |
 
 ### Examples
 
 ```bash
-# Scan your home projects directory
 grove ~/projects
-
-# Quick check, no TUI
 grove -n ~/projects
-
-# Include dotfile repos
 grove -H ~
-
-# Scan only two levels deep
 grove -d 2 ~/code
 ```
 
@@ -56,51 +47,46 @@ REPO                    BRANCH    STATUS       STASH  REMOTE    SYNC
 ~/projects/api-server   main      ✓ clean      —      origin    ✓ synced
 ```
 
-Rows are color-coded: red for repos with at-risk data, yellow for unusual states (detached HEAD), green for fully synced repos. Sorted by risk — problems float to the top.
+Rows are colored red/yellow/green based on whether there's local-only data. Dirty repos sort to the top.
 
 ## Interactive TUI
 
-The TUI shows all repos in a navigable list with a detail panel for the selected repo.
+A scrollable repo list with a detail panel for the selected repo.
 
 ### Keybindings
 
-| Key | Action | When |
-|-----|--------|------|
-| `↑`/`↓`, `j`/`k` | Navigate repos | Always |
+| Key | Action | When shown |
+|-----|--------|------------|
+| `↑`/`↓`, `j`/`k` | Navigate | Always |
 | `Enter` | Toggle detail panel | Always |
-| `s` | Open shell in repo | Always |
-| `e` | Open `$EDITOR` in repo | Always |
-| `c` | Launch `claude` in repo | Always |
-| `C` | Launch `claude --dangerously-skip-permissions` | Always |
-| `p` | Git push | When ahead of remote |
-| `f` | Git fetch | When remote exists |
-| `P` | Git pull | When behind remote |
-| `y` | Copy repo path to clipboard | Always |
-| `r` | Refresh all repos | Always |
+| `s` | Shell in repo dir | Always |
+| `e` | `$EDITOR` in repo dir | Always |
+| `c` | `claude` in repo dir | Always |
+| `C` | `claude --dangerously-skip-permissions` | Always |
+| `p` | `git push` | Ahead of remote |
+| `f` | `git fetch` | Has remote |
+| `P` | `git pull` | Behind remote |
+| `y` | Copy path to clipboard | Always |
+| `r` | Refresh | Always |
 | `q` / `Esc` | Quit | Always |
 
-Context-sensitive keys only appear in the footer when they're relevant to the selected repo.
+Keys for push/pull/fetch only appear when they'd do something useful.
 
-## What Grove checks
+## What it checks
 
-| Condition | Meaning |
-|-----------|---------|
-| Uncommitted changes | Modified or staged files not in any commit |
-| Untracked files | Files git doesn't know about |
-| No remote configured | Entire repo is local-only |
-| Unpushed commits | Commits that exist nowhere else |
-| Stashes | Stashes are local-only |
-| No upstream tracking | Branch may have no remote counterpart |
-| Merge/rebase in progress | Incomplete operation |
-| Detached HEAD | Not on a branch — easy to lose commits |
+For each repo, Grove looks at:
 
-## How traversal works
+- Uncommitted changes (modified, staged, untracked files)
+- Whether a remote is configured
+- Unpushed commits
+- Stash entries
+- Whether the branch tracks an upstream
+- Merge or rebase in progress
+- Detached HEAD
 
-- Walks directories recursively looking for `.git` directories
-- When `.git` is found, the repo is recorded and Grove does not descend further into it
-- Hidden directories (starting with `.`) are skipped by default — use `-H` to include them
-- Stops at filesystem boundaries (mount points) by default — use `--all-filesystems` to cross them
-- All repos are discovered and inspected before any output is shown
+## Traversal
+
+Grove walks directories recursively looking for `.git`. When it finds one, it records the repo and doesn't descend further. Hidden directories are skipped unless you pass `-H`. Traversal stops at filesystem boundaries (mount points) unless you pass `--all-filesystems`.
 
 ## License
 
