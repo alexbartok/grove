@@ -7,7 +7,7 @@ use clap::Parser;
 
 use grove::scanner::{self, ScanOptions};
 use grove::git;
-use grove::model::RepoInfo;
+use grove::model::{self, RepoInfo};
 use grove::static_output;
 
 /// Grove — would you lose work if this machine died?
@@ -35,13 +35,15 @@ struct Args {
     all_filesystems: bool,
 }
 
-fn display_path(path: &std::path::Path, home: Option<&std::path::Path>) -> String {
-    if let Some(home) = home
-        && let Ok(stripped) = path.strip_prefix(home)
-    {
-        return format!("~/{}", stripped.display());
+/// Truncate a display string to `max_len` chars, adding "..." prefix for the tail.
+fn truncate_display(s: &str, max_len: usize) -> String {
+    let char_count = s.chars().count();
+    if char_count <= max_len {
+        s.to_string()
+    } else {
+        let skip = char_count - (max_len.saturating_sub(3));
+        format!("...{}", s.chars().skip(skip).collect::<String>())
     }
-    path.display().to_string()
 }
 
 fn main() -> Result<()> {
@@ -75,7 +77,7 @@ fn main() -> Result<()> {
                 let now = Instant::now();
                 if now.duration_since(last_update).as_millis() >= 80 {
                     last_update = now;
-                    let path_display = display_path(p, home_dir.as_deref());
+                    let path_display = model::display_path(p, home_dir.as_deref());
                     eprint!("\r\x1b[KLoading repo {}/{}: {}", i + 1, total, path_display);
                     let _ = std::io::stderr().flush();
                 }
@@ -95,13 +97,8 @@ fn main() -> Result<()> {
                     return;
                 }
                 last_update = now;
-                let dir_display = display_path(progress.current_dir, home_dir.as_deref());
-                let max_len = 60;
-                let dir_short = if dir_display.len() > max_len {
-                    format!("...{}", &dir_display[dir_display.len() - max_len + 3..])
-                } else {
-                    dir_display
-                };
+                let dir_display = model::display_path(progress.current_dir, home_dir.as_deref());
+                let dir_short = truncate_display(&dir_display, 60);
                 eprint!(
                     "\r\x1b[KScanning: {} dirs | {} repos found | {}",
                     progress.dirs_scanned, progress.repos_found, dir_short
@@ -118,7 +115,7 @@ fn main() -> Result<()> {
                 let now = Instant::now();
                 if now.duration_since(last_update).as_millis() >= 80 {
                     last_update = now;
-                    eprint!("\r\x1b[KInspecting repo {}/{}: {}", i + 1, total, display_path(p, home_dir.as_deref()));
+                    eprint!("\r\x1b[KInspecting repo {}/{}: {}", i + 1, total, model::display_path(p, home_dir.as_deref()));
                     let _ = std::io::stderr().flush();
                 }
                 match git::inspect_repo(p) {
@@ -156,13 +153,8 @@ fn main() -> Result<()> {
                 return;
             }
             last_update = now;
-            let dir_display = display_path(progress.current_dir, home_dir.as_deref());
-            let max_len = 60;
-            let dir_short = if dir_display.len() > max_len {
-                format!("...{}", &dir_display[dir_display.len() - max_len + 3..])
-            } else {
-                dir_display
-            };
+            let dir_display = model::display_path(progress.current_dir, home_dir.as_deref());
+            let dir_short = truncate_display(&dir_display, 60);
             eprint!(
                 "\r\x1b[KScanning: {} dirs | {} repos found | {}",
                 progress.dirs_scanned, progress.repos_found, dir_short

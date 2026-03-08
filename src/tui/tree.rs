@@ -117,15 +117,6 @@ fn flatten_children(node: &TrieNode, rows: &mut Vec<DisplayRow>, prefix: String)
     }
 }
 
-fn display_path(path: &Path, home: Option<&Path>) -> String {
-    if let Some(home) = home
-        && let Ok(stripped) = path.strip_prefix(home)
-    {
-        return format!("~/{}", stripped.display());
-    }
-    path.display().to_string()
-}
-
 /// Build display rows as a flat list (dirty-first sort mode).
 pub fn build_flat_rows(repos: &[RepoInfo], home_dir: Option<&Path>) -> Vec<DisplayRow> {
     repos
@@ -133,7 +124,7 @@ pub fn build_flat_rows(repos: &[RepoInfo], home_dir: Option<&Path>) -> Vec<Displ
         .enumerate()
         .map(|(idx, repo)| DisplayRow::Repo {
             repo_index: idx,
-            display_name: display_path(&repo.path, home_dir),
+            display_name: crate::model::display_path(&repo.path, home_dir),
             tree_prefix: String::new(),
         })
         .collect()

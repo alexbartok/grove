@@ -10,6 +10,7 @@ colored = "2"
 crossterm = "0.28"
 git2 = "0.19"
 ratatui = "0.29"
+unicode-width = "0.2"
 
 [dev-dependencies]
 tempfile = "3"

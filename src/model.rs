@@ -113,6 +113,16 @@ impl RepoInfo {
     }
 }
 
+/// Shorten a path by replacing $HOME prefix with `~`.
+pub fn display_path(path: &std::path::Path, home: Option<&std::path::Path>) -> String {
+    if let Some(home) = home
+        && let Ok(stripped) = path.strip_prefix(home)
+    {
+        return format!("~/{}", stripped.display());
+    }
+    path.display().to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

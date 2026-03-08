@@ -46,6 +46,8 @@ pub struct App {
     pub has_lazygit: bool,
     pub scanning: bool,
     pub scan_progress: Option<(usize, usize)>,
+    pub flash_message: Option<(String, std::time::Instant)>,
+    refresh_pending: bool,
     scan_rx: Option<mpsc::Receiver<ScanMessage>>,
 }
 
@@ -70,6 +72,8 @@ impl App {
             has_lazygit: detect_lazygit(),
             scanning: false,
             scan_progress: None,
+            flash_message: None,
+            refresh_pending: false,
             scan_rx: None,
         };
         app.rebuild_display_rows();
@@ -151,36 +155,8 @@ impl App {
         self.scan_rx = None;
         self.scanning = false;
         self.scan_progress = None;
-
-        let current_path = self.selected_repo().map(|r| r.path.clone());
-
-        let repo_paths = crate::scanner::scan_repos(&self.scan_path, &self.scan_options);
-        self.repos = repo_paths
-            .iter()
-            .filter_map(|p| crate::git::inspect_repo(p).ok())
-            .collect();
-        self.repos.sort_by_key(|r| r.risk_level());
-
-        self.rebuild_display_rows();
-
-        if let Some(path) = current_path {
-            for (i, row) in self.display_rows.iter().enumerate() {
-                if let Some(idx) = row.repo_index() {
-                    if self.repos[idx].path == path {
-                        self.selected = i;
-                        self.list_state.select(Some(i));
-                        let repo_paths: Vec<std::path::PathBuf> = self.repos.iter().map(|r| r.path.clone()).collect();
-                        crate::cache::save(&self.scan_path, &repo_paths);
-                        return;
-                    }
-                }
-            }
-        }
-
-        self.select_first_repo();
-
-        let repo_paths: Vec<std::path::PathBuf> = self.repos.iter().map(|r| r.path.clone()).collect();
-        crate::cache::save(&self.scan_path, &repo_paths);
+        self.refresh_pending = true;
+        self.start_background_scan();
     }
 
     /// Re-sort repos and rebuild display rows, preserving selection on the given path.
@@ -189,12 +165,12 @@ impl App {
         self.rebuild_display_rows();
 
         for (i, row) in self.display_rows.iter().enumerate() {
-            if let Some(idx) = row.repo_index() {
-                if self.repos[idx].path == *target_path {
-                    self.selected = i;
-                    self.list_state.select(Some(i));
-                    return;
-                }
+            if let Some(idx) = row.repo_index()
+                && self.repos[idx].path == *target_path
+            {
+                self.selected = i;
+                self.list_state.select(Some(i));
+                return;
             }
         }
 
@@ -245,20 +221,30 @@ impl App {
         use std::collections::HashSet;
 
         let selected_path = self.selected_repo().map(|r| r.path.clone());
-        let discovered: HashSet<&std::path::PathBuf> = discovered_paths.iter().collect();
-        let current: HashSet<std::path::PathBuf> = self.repos.iter().map(|r| r.path.clone()).collect();
 
-        // Add newly discovered repos
-        for path in &discovered_paths {
-            if !current.contains(path) {
-                if let Ok(info) = crate::git::inspect_repo(path) {
+        if self.refresh_pending {
+            // Full refresh: re-inspect all discovered repos
+            self.repos = discovered_paths
+                .iter()
+                .filter_map(|p| crate::git::inspect_repo(p).ok())
+                .collect();
+            self.refresh_pending = false;
+        } else {
+            // Background update: only add new, remove stale
+            let discovered: HashSet<&std::path::PathBuf> = discovered_paths.iter().collect();
+            let current: HashSet<std::path::PathBuf> =
+                self.repos.iter().map(|r| r.path.clone()).collect();
+
+            for path in &discovered_paths {
+                if !current.contains(path)
+                    && let Ok(info) = crate::git::inspect_repo(path)
+                {
                     self.repos.push(info);
                 }
             }
-        }
 
-        // Remove stale repos (cached but no longer on disk)
-        self.repos.retain(|r| discovered.contains(&r.path));
+            self.repos.retain(|r| discovered.contains(&r.path));
+        }
 
         self.repos.sort_by_key(|r| r.risk_level());
         self.rebuild_display_rows();
@@ -266,12 +252,12 @@ impl App {
         // Restore selection
         if let Some(path) = selected_path {
             for (i, row) in self.display_rows.iter().enumerate() {
-                if let Some(idx) = row.repo_index() {
-                    if self.repos[idx].path == path {
-                        self.selected = i;
-                        self.list_state.select(Some(i));
-                        break;
-                    }
+                if let Some(idx) = row.repo_index()
+                    && self.repos[idx].path == path
+                {
+                    self.selected = i;
+                    self.list_state.select(Some(i));
+                    break;
                 }
             }
         }
@@ -327,6 +313,12 @@ pub fn run(app: &mut App) -> Result<()> {
 fn run_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut App) -> Result<()> {
     loop {
         app.poll_background_scan();
+        // Clear expired flash messages
+        if let Some((_, when)) = &app.flash_message
+            && when.elapsed().as_secs() >= 5
+        {
+            app.flash_message = None;
+        }
         terminal.draw(|f| ui::draw(f, &mut *app))?;
 
         if event::poll(Duration::from_millis(100))?

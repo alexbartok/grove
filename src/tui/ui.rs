@@ -1,3 +1,5 @@
+use unicode_width::UnicodeWidthStr;
+
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
@@ -34,14 +36,6 @@ pub fn draw(f: &mut Frame, app: &mut App) {
 // Helpers
 // ---------------------------------------------------------------------------
 
-fn display_path(path: &std::path::Path, home: Option<&std::path::Path>) -> String {
-    if let Some(home) = home
-        && let Ok(stripped) = path.strip_prefix(home) {
-            return format!("~/{}", stripped.display());
-        }
-    path.display().to_string()
-}
-
 fn risk_color(level: RiskLevel) -> Color {
     match level {
         RiskLevel::AtRisk => Color::Red,
@@ -51,10 +45,22 @@ fn risk_color(level: RiskLevel) -> Color {
 }
 
 fn truncate_name(name: &str, max_width: usize) -> String {
-    if name.chars().count() <= max_width {
+    let w = UnicodeWidthStr::width(name);
+    if w <= max_width {
         name.to_string()
     } else {
-        let truncated: String = name.chars().take(max_width.saturating_sub(1)).collect();
+        let mut width = 0;
+        let truncated: String = name
+            .chars()
+            .take_while(|c| {
+                let cw = unicode_width::UnicodeWidthChar::width(*c).unwrap_or(0);
+                if width + cw + 1 > max_width {
+                    return false;
+                }
+                width += cw;
+                true
+            })
+            .collect();
         format!("{truncated}\u{2026}")
     }
 }
@@ -66,7 +72,7 @@ fn truncate_name(name: &str, max_width: usize) -> String {
 fn draw_header(f: &mut Frame, app: &App, area: Rect) {
     let title = format!(
         "Grove — {}",
-        display_path(&app.scan_path, app.home_dir.as_deref())
+        crate::model::display_path(&app.scan_path, app.home_dir.as_deref())
     );
 
     let total = app.repos.len();
@@ -118,16 +124,16 @@ fn draw_repo_list(f: &mut Frame, app: &mut App, area: Rect) {
     for row in &app.display_rows {
         let full_name_len = row.tree_prefix().len() + row.display_name().len();
         name_w = name_w.max(full_name_len);
-        if let Some(idx) = row.repo_index() {
-            if let Some(repo) = app.repos.get(idx) {
-                branch_w = branch_w.max(repo.branch_display().len());
-                status_w = status_w.max(repo.status_summary().len());
-                stash_w = stash_w.max(repo.stash_summary().len());
-                remote_w = remote_w.max(repo.remote_name.as_deref().unwrap_or("\u{2014}").len());
-                let sync = repo.sync_summary();
-                if !sync.is_empty() {
-                    sync_w = sync_w.max(sync.len());
-                }
+        if let Some(idx) = row.repo_index()
+            && let Some(repo) = app.repos.get(idx)
+        {
+            branch_w = branch_w.max(repo.branch_display().len());
+            status_w = status_w.max(repo.status_summary().len());
+            stash_w = stash_w.max(repo.stash_summary().len());
+            remote_w = remote_w.max(repo.remote_name.as_deref().unwrap_or("\u{2014}").len());
+            let sync = repo.sync_summary();
+            if !sync.is_empty() {
+                sync_w = sync_w.max(sync.len());
             }
         }
     }
@@ -342,7 +348,7 @@ fn draw_detail(f: &mut Frame, app: &App, area: Rect) {
         }
     };
 
-    let path_str = display_path(&repo.path, app.home_dir.as_deref());
+    let path_str = crate::model::display_path(&repo.path, app.home_dir.as_deref());
     let title = format!("{} ({})", path_str, repo.branch_display());
 
     let mut lines: Vec<Line> = Vec::new();
@@ -438,6 +444,15 @@ fn draw_detail(f: &mut Frame, app: &App, area: Rect) {
 // ---------------------------------------------------------------------------
 
 fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
+    // Show flash message if present and fresh (< 5 seconds)
+    if let Some((ref msg, when)) = app.flash_message
+        && when.elapsed().as_secs() < 5
+    {
+        let line = Line::from(Span::styled(msg.as_str(), Style::default().fg(Color::Yellow)));
+        f.render_widget(Paragraph::new(line), area);
+        return;
+    }
+
     let mut spans: Vec<Span> = Vec::new();
 
     // Context-sensitive keys based on selected repo

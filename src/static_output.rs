@@ -53,14 +53,6 @@ pub fn print_static(repos: &[RepoInfo], home_dir: Option<&std::path::Path>) {
     }
 }
 
-fn display_path(path: &std::path::Path, home_dir: Option<&std::path::Path>) -> String {
-    if let Some(home) = home_dir
-        && let Ok(stripped) = path.strip_prefix(home) {
-            return format!("~/{}", stripped.display());
-        }
-    path.display().to_string()
-}
-
 fn compute_widths(repos: &[RepoInfo], home_dir: Option<&std::path::Path>) -> ColumnWidths {
     let mut widths = ColumnWidths {
         repo: 4,    // "REPO"
@@ -71,7 +63,7 @@ fn compute_widths(repos: &[RepoInfo], home_dir: Option<&std::path::Path>) -> Col
     };
 
     for info in repos {
-        widths.repo = widths.repo.max(display_path(&info.path, home_dir).len());
+        widths.repo = widths.repo.max(crate::model::display_path(&info.path, home_dir).len());
         widths.branch = widths.branch.max(info.branch_display().len());
         widths.status = widths.status.max(info.status_summary().len());
         widths.stash = widths.stash.max(info.stash_summary().len());
@@ -88,7 +80,7 @@ fn format_row(
     widths: &ColumnWidths,
     home_dir: Option<&std::path::Path>,
 ) -> String {
-    let path_display = display_path(&info.path, home_dir);
+    let path_display = crate::model::display_path(&info.path, home_dir);
     let remote_display = info.remote_name.as_deref().unwrap_or("\u{2014}");
 
     format!(
@@ -135,14 +127,14 @@ mod tests {
     #[test]
     fn test_tilde_contraction() {
         let home = PathBuf::from("/Users/alice");
-        let result = display_path(&PathBuf::from("/Users/alice/projects/foo"), Some(&home));
+        let result = crate::model::display_path(&PathBuf::from("/Users/alice/projects/foo"), Some(&home));
         assert_eq!(result, "~/projects/foo");
     }
 
     #[test]
     fn test_no_tilde_when_not_under_home() {
         let home = PathBuf::from("/Users/alice");
-        let result = display_path(&PathBuf::from("/tmp/foo"), Some(&home));
+        let result = crate::model::display_path(&PathBuf::from("/tmp/foo"), Some(&home));
         assert_eq!(result, "/tmp/foo");
     }
 

@@ -1,5 +1,3 @@
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 
 fn cache_dir() -> PathBuf {
@@ -11,10 +9,18 @@ fn cache_dir() -> PathBuf {
         .join("grove")
 }
 
+/// FNV-1a hash — stable across Rust versions (unlike DefaultHasher).
+fn stable_hash(bytes: &[u8]) -> u64 {
+    let mut hash: u64 = 0xcbf29ce484222325;
+    for &b in bytes {
+        hash ^= b as u64;
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    hash
+}
+
 fn cache_file(scan_path: &Path) -> PathBuf {
-    let mut hasher = DefaultHasher::new();
-    scan_path.hash(&mut hasher);
-    let hash = hasher.finish();
+    let hash = stable_hash(scan_path.as_os_str().as_encoded_bytes());
     cache_dir().join(format!("{:016x}.paths", hash))
 }
 
