@@ -2,7 +2,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, Paragraph, Wrap},
+    widgets::{Block, Borders, List, ListItem, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Wrap},
     Frame,
 };
 
@@ -139,6 +139,16 @@ fn draw_repo_list(f: &mut Frame, app: &mut App, area: Rect) {
         .highlight_style(Style::default().add_modifier(Modifier::BOLD));
 
     f.render_stateful_widget(list, area, &mut app.list_state);
+
+    // Scrollbar
+    if app.repos.len() > area.height.saturating_sub(2) as usize {
+        let mut scrollbar_state = ScrollbarState::new(app.repos.len())
+            .position(app.selected);
+        let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
+            .begin_symbol(None)
+            .end_symbol(None);
+        f.render_stateful_widget(scrollbar, area.inner(ratatui::layout::Margin { vertical: 1, horizontal: 0 }), &mut scrollbar_state);
+    }
 }
 
 // ---------------------------------------------------------------------------
