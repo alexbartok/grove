@@ -10,7 +10,7 @@ use crate::model::RiskLevel;
 use super::App;
 
 /// Main draw entry point called every tick by the event loop.
-pub fn draw(f: &mut Frame, app: &App) {
+pub fn draw(f: &mut Frame, app: &mut App) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -85,11 +85,11 @@ fn draw_header(f: &mut Frame, app: &App, area: Rect) {
 // Repo list
 // ---------------------------------------------------------------------------
 
-fn draw_repo_list(f: &mut Frame, app: &App, area: Rect) {
+fn draw_repo_list(f: &mut Frame, app: &mut App, area: Rect) {
     // Compute column widths from actual data
-    let mut path_w = 4_usize;  // "REPO"
-    let mut branch_w = 6_usize; // "BRANCH"
-    let mut status_w = 6_usize; // "STATUS"
+    let mut path_w = 4_usize;
+    let mut branch_w = 6_usize;
+    let mut status_w = 6_usize;
     for repo in &app.repos {
         path_w = path_w.max(display_path(&repo.path, app.home_dir.as_deref()).len());
         branch_w = branch_w.max(repo.branch_display().len());
@@ -99,35 +99,29 @@ fn draw_repo_list(f: &mut Frame, app: &App, area: Rect) {
     let items: Vec<ListItem> = app
         .repos
         .iter()
-        .enumerate()
-        .map(|(i, repo)| {
-            let selected = i == app.selected;
-            let prefix = if selected { "\u{25b8} " } else { "  " };
+        .map(|repo| {
             let color = risk_color(repo.risk_level());
-            let bold = if selected { Modifier::BOLD } else { Modifier::empty() };
-
             let path_str = display_path(&repo.path, app.home_dir.as_deref());
 
             let line = Line::from(vec![
-                Span::styled(prefix, Style::default().add_modifier(bold)),
                 Span::styled(
                     format!("{:<w$}", path_str, w = path_w),
-                    Style::default().fg(color).add_modifier(bold),
+                    Style::default().fg(color),
                 ),
                 Span::raw("  "),
                 Span::styled(
                     format!("{:<w$}", repo.branch_display(), w = branch_w),
-                    Style::default().fg(Color::Cyan).add_modifier(bold),
+                    Style::default().fg(Color::Cyan),
                 ),
                 Span::raw("  "),
                 Span::styled(
                     format!("{:<w$}", repo.status_summary(), w = status_w),
-                    Style::default().fg(color).add_modifier(bold),
+                    Style::default().fg(color),
                 ),
                 Span::raw("  "),
                 Span::styled(
                     repo.sync_summary(),
-                    Style::default().fg(color).add_modifier(bold),
+                    Style::default().fg(color),
                 ),
             ]);
 
@@ -139,8 +133,12 @@ fn draw_repo_list(f: &mut Frame, app: &App, area: Rect) {
         .borders(Borders::ALL)
         .title("Repos");
 
-    let list = List::new(items).block(block);
-    f.render_widget(list, area);
+    let list = List::new(items)
+        .block(block)
+        .highlight_symbol("▸ ")
+        .highlight_style(Style::default().add_modifier(Modifier::BOLD));
+
+    f.render_stateful_widget(list, area, &mut app.list_state);
 }
 
 // ---------------------------------------------------------------------------

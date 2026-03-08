@@ -10,13 +10,14 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use ratatui::{backend::CrosstermBackend, Terminal};
+use ratatui::{backend::CrosstermBackend, widgets::ListState, Terminal};
 
 use crate::model::RepoInfo;
 
 pub struct App {
     pub repos: Vec<RepoInfo>,
     pub selected: usize,
+    pub list_state: ListState,
     pub detail_expanded: bool,
     pub should_quit: bool,
     pub scan_path: std::path::PathBuf,
@@ -31,9 +32,14 @@ impl App {
         scan_options: crate::scanner::ScanOptions,
         home_dir: Option<std::path::PathBuf>,
     ) -> Self {
+        let mut list_state = ListState::default();
+        if !repos.is_empty() {
+            list_state.select(Some(0));
+        }
         Self {
             repos,
             selected: 0,
+            list_state,
             detail_expanded: true,
             should_quit: false,
             scan_path,
@@ -49,11 +55,13 @@ impl App {
     pub fn next(&mut self) {
         if !self.repos.is_empty() {
             self.selected = (self.selected + 1).min(self.repos.len() - 1);
+            self.list_state.select(Some(self.selected));
         }
     }
 
     pub fn previous(&mut self) {
         self.selected = self.selected.saturating_sub(1);
+        self.list_state.select(Some(self.selected));
     }
 
     pub fn toggle_detail(&mut self) {
@@ -70,6 +78,7 @@ impl App {
         if self.selected >= self.repos.len() {
             self.selected = self.repos.len().saturating_sub(1);
         }
+        self.list_state.select(if self.repos.is_empty() { None } else { Some(self.selected) });
     }
 }
 
@@ -90,7 +99,7 @@ pub fn run(app: &mut App) -> Result<()> {
 
 fn run_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut App) -> Result<()> {
     loop {
-        terminal.draw(|f| ui::draw(f, app))?;
+        terminal.draw(|f| ui::draw(f, &mut *app))?;
 
         if event::poll(Duration::from_millis(100))?
             && let Event::Key(key) = event::read()? {
