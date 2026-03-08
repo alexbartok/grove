@@ -66,9 +66,8 @@ fn main() -> Result<()> {
     repos.sort_by_key(|r| r.risk_level());
 
     if interactive {
-        // TUI mode — placeholder for now
-        eprintln!("Interactive mode not yet implemented. Use -n for static output.");
-        static_output::print_static(&repos, home_dir.as_deref());
+        let mut app = grove::tui::App::new(repos, scan_path, opts, home_dir);
+        grove::tui::run(&mut app)?;
     } else {
         static_output::print_static(&repos, home_dir.as_deref());
     }
