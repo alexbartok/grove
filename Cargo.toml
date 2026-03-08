@@ -9,6 +9,7 @@ atty = "0.2"
 clap = { version = "4", features = ["derive"] }
 colored = "2"
 crossterm = "0.28"
+dirs = "6"
 git2 = "0.19"
 ratatui = "0.29"
 
