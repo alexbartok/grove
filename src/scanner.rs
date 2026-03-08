@@ -12,12 +12,29 @@ pub struct ScanOptions {
     pub cross_filesystems: bool,
 }
 
+/// Progress information emitted during scanning.
+pub struct ScanProgress<'a> {
+    pub dirs_scanned: usize,
+    pub repos_found: usize,
+    pub current_dir: &'a Path,
+}
+
 /// Scan a directory tree for git repositories.
 /// Returns paths to directories containing `.git`.
 pub fn scan_repos(root: &Path, opts: &ScanOptions) -> Vec<PathBuf> {
+    scan_repos_with_progress(root, opts, |_| {})
+}
+
+/// Scan with a progress callback invoked for each directory visited.
+pub fn scan_repos_with_progress(
+    root: &Path,
+    opts: &ScanOptions,
+    mut on_progress: impl FnMut(&ScanProgress),
+) -> Vec<PathBuf> {
     let mut repos = Vec::new();
+    let mut dirs_scanned = 0_usize;
     let root_dev = root_device_id(root);
-    walk(root, opts, 0, root_dev, &mut repos);
+    walk(root, opts, 0, root_dev, &mut repos, &mut dirs_scanned, &mut on_progress);
     repos
 }
 
@@ -27,12 +44,27 @@ fn walk(
     depth: usize,
     root_dev: Option<u64>,
     repos: &mut Vec<PathBuf>,
+    dirs_scanned: &mut usize,
+    on_progress: &mut impl FnMut(&ScanProgress),
 ) {
+    *dirs_scanned += 1;
+
     // Check if this directory is a git repo
     if dir.join(".git").exists() {
         repos.push(dir.to_path_buf());
+        on_progress(&ScanProgress {
+            dirs_scanned: *dirs_scanned,
+            repos_found: repos.len(),
+            current_dir: dir,
+        });
         return; // Don't descend into repos
     }
+
+    on_progress(&ScanProgress {
+        dirs_scanned: *dirs_scanned,
+        repos_found: repos.len(),
+        current_dir: dir,
+    });
 
     // Check depth limit
     if let Some(max) = opts.max_depth
@@ -47,9 +79,13 @@ fn walk(
     };
 
     for entry in entries.flatten() {
-        let path = entry.path();
+        // Use file_type() from DirEntry to avoid extra stat syscall
+        let is_dir = match entry.file_type() {
+            Ok(ft) => ft.is_dir(),
+            Err(_) => continue,
+        };
 
-        if !path.is_dir() {
+        if !is_dir {
             continue;
         }
 
@@ -63,6 +99,8 @@ fn walk(
             continue;
         }
 
+        let path = entry.path();
+
         // Check filesystem boundary
         if !opts.cross_filesystems
             && let Some(root_dev) = root_dev
@@ -70,7 +108,7 @@ fn walk(
                     continue;
                 }
 
-        walk(&path, opts, depth + 1, root_dev, repos);
+        walk(&path, opts, depth + 1, root_dev, repos, dirs_scanned, on_progress);
     }
 }
 
@@ -202,5 +240,27 @@ mod tests {
         };
         let repos = scan_repos(tmp.path(), &opts);
         assert_eq!(repos.len(), 1);
+    }
+
+    #[test]
+    fn test_progress_callback() {
+        let tmp = TempDir::new().unwrap();
+        create_fake_repo(&tmp.path().join("a"));
+        create_fake_repo(&tmp.path().join("b"));
+        fs::create_dir_all(tmp.path().join("empty")).unwrap();
+        let opts = ScanOptions {
+            include_hidden: false,
+            max_depth: None,
+            cross_filesystems: true,
+        };
+        let mut calls = 0_usize;
+        let mut last_repos_found = 0_usize;
+        scan_repos_with_progress(tmp.path(), &opts, |p| {
+            calls += 1;
+            last_repos_found = p.repos_found;
+        });
+        // root + a + b + empty = 4 dirs visited
+        assert_eq!(calls, 4);
+        assert_eq!(last_repos_found, 2);
     }
 }
