@@ -63,16 +63,27 @@ fn draw_header(f: &mut Frame, app: &App, area: Rect) {
     let total = app.repos.len();
     let dirty = app.repos.iter().filter(|r| r.risk_level() != RiskLevel::Safe).count();
 
-    let summary = if dirty > 0 {
-        Line::from(vec![
-            Span::raw(format!("{total} repos, ")),
-            Span::styled(format!("{dirty} dirty"), Style::default().fg(Color::Red)),
-        ])
+    let mut spans = Vec::new();
+    if dirty > 0 {
+        spans.push(Span::raw(format!("{total} repos, ")));
+        spans.push(Span::styled(format!("{dirty} dirty"), Style::default().fg(Color::Red)));
     } else {
-        Line::from(vec![
-            Span::styled(format!("{total} repos, all clean"), Style::default().fg(Color::Green)),
-        ])
-    };
+        spans.push(Span::styled(format!("{total} repos, all clean"), Style::default().fg(Color::Green)));
+    }
+
+    if app.scanning {
+        spans.push(Span::raw("  "));
+        if let Some((dirs, found)) = app.scan_progress {
+            spans.push(Span::styled(
+                format!("scanning: {dirs} dirs, {found} found"),
+                Style::default().fg(Color::DarkGray),
+            ));
+        } else {
+            spans.push(Span::styled("scanning...", Style::default().fg(Color::DarkGray)));
+        }
+    }
+
+    let summary = Line::from(spans);
 
     let block = Block::default()
         .title(title)
