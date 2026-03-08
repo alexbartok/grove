@@ -5,8 +5,12 @@ Scans a directory tree for git repositories and shows you which ones have uncomm
 ## Install
 
 ```
-cargo install --path .
+make install
 ```
+
+This builds a release binary and copies it to `/usr/local/bin/`. Use `PREFIX=~/.local make install` for a different location.
+
+Alternatively: `cargo install --path .` installs to `~/.cargo/bin/`.
 
 Requires Rust 1.85+ (2024 edition).
 
@@ -43,15 +47,15 @@ grove -d 2 ~/code
 REPO                    BRANCH    STATUS       STASH  REMOTE    SYNC
 ~/projects/frontend     feat/nav  2 modified   —      origin    ↑3 ahead
 ~/projects/dotfiles     main      ✓ clean      —      —         ✗ no remote
-~/projects/scripts      main      1 untracked  1      origin    ✓ synced
-~/projects/api-server   main      ✓ clean      —      origin    ✓ synced
+~/projects/scripts      main      1 untracked  1      origin
+~/projects/api-server   main      ✓ clean      —      origin
 ```
 
-Rows are colored red/yellow/green based on whether there's local-only data. Dirty repos sort to the top.
+Rows are colored red/yellow/green based on whether there's local-only data. The sync column only shows problems — it's blank when up-to-date. Dirty repos sort to the top.
 
 ## Interactive TUI
 
-A scrollable repo list with a detail panel for the selected repo.
+A scrollable repo list with a detail panel for the selected repo. On startup, Grove loads from cache for instant display, then rescans in the background. Repos are shown in a collapsible tree view that mirrors your directory structure.
 
 ### Keybindings
 
@@ -59,18 +63,20 @@ A scrollable repo list with a detail panel for the selected repo.
 |-----|--------|------------|
 | `↑`/`↓`, `j`/`k` | Navigate | Always |
 | `Enter` | Toggle detail panel | Always |
+| `o` | Toggle tree / dirty-first sort | Always |
 | `s` | Shell in repo dir | Always |
 | `e` | `$EDITOR` in repo dir | Always |
 | `c` | `claude` in repo dir | Always |
 | `C` | `claude --dangerously-skip-permissions` | Always |
+| `l` | lazygit in repo dir | When lazygit is installed |
 | `p` | `git push` | Ahead of remote |
 | `f` | `git fetch` | Has remote |
 | `P` | `git pull` | Behind remote |
 | `y` | Copy path to clipboard | Always |
-| `r` | Refresh | Always |
+| `r` | Refresh (background rescan) | Always |
 | `q` / `Esc` | Quit | Always |
 
-Keys for push/pull/fetch only appear when they'd do something useful.
+Keys for push/pull/fetch only appear when they'd do something useful. Columns adapt to terminal width, hiding lower-priority columns when space is tight.
 
 ## What it checks
 
