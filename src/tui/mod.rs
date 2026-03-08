@@ -3,6 +3,8 @@ pub mod tree;
 pub mod ui;
 
 use std::io;
+use std::path::PathBuf;
+use std::sync::mpsc;
 use std::time::Duration;
 
 use anyhow::Result;
@@ -15,6 +17,11 @@ use ratatui::{backend::CrosstermBackend, widgets::ListState, Terminal};
 
 use crate::model::RepoInfo;
 use tree::{DisplayRow, SortMode};
+
+pub enum ScanMessage {
+    Progress { dirs_scanned: usize, repos_found: usize },
+    Complete(Vec<PathBuf>),
+}
 
 fn detect_lazygit() -> bool {
     std::process::Command::new("lazygit")
@@ -37,6 +44,9 @@ pub struct App {
     pub sort_mode: SortMode,
     pub display_rows: Vec<DisplayRow>,
     pub has_lazygit: bool,
+    pub scanning: bool,
+    pub scan_progress: Option<(usize, usize)>,
+    scan_rx: Option<mpsc::Receiver<ScanMessage>>,
 }
 
 impl App {
@@ -58,6 +68,9 @@ impl App {
             sort_mode: SortMode::Tree,
             display_rows: Vec::new(),
             has_lazygit: detect_lazygit(),
+            scanning: false,
+            scan_progress: None,
+            scan_rx: None,
         };
         app.rebuild_display_rows();
         app.select_first_repo();
@@ -135,6 +148,10 @@ impl App {
     }
 
     pub fn refresh_all(&mut self) {
+        self.scan_rx = None;
+        self.scanning = false;
+        self.scan_progress = None;
+
         let current_path = self.selected_repo().map(|r| r.path.clone());
 
         let repo_paths = crate::scanner::scan_repos(&self.scan_path, &self.scan_options);
@@ -152,6 +169,8 @@ impl App {
                     if self.repos[idx].path == path {
                         self.selected = i;
                         self.list_state.select(Some(i));
+                        let repo_paths: Vec<std::path::PathBuf> = self.repos.iter().map(|r| r.path.clone()).collect();
+                        crate::cache::save(&self.scan_path, &repo_paths);
                         return;
                     }
                 }
@@ -159,6 +178,9 @@ impl App {
         }
 
         self.select_first_repo();
+
+        let repo_paths: Vec<std::path::PathBuf> = self.repos.iter().map(|r| r.path.clone()).collect();
+        crate::cache::save(&self.scan_path, &repo_paths);
     }
 
     /// Re-sort repos and rebuild display rows, preserving selection on the given path.
@@ -177,6 +199,94 @@ impl App {
         }
 
         self.select_first_repo();
+    }
+
+    pub fn start_background_scan(&mut self) {
+        let (tx, rx) = mpsc::channel();
+        self.scan_rx = Some(rx);
+        self.scanning = true;
+        self.scan_progress = Some((0, 0));
+
+        let scan_path = self.scan_path.clone();
+        let opts = self.scan_options.clone();
+
+        std::thread::spawn(move || {
+            let mut last_send = std::time::Instant::now();
+            let paths = crate::scanner::scan_repos_with_progress(&scan_path, &opts, |progress| {
+                let now = std::time::Instant::now();
+                if now.duration_since(last_send).as_millis() >= 200 {
+                    last_send = now;
+                    let _ = tx.send(ScanMessage::Progress {
+                        dirs_scanned: progress.dirs_scanned,
+                        repos_found: progress.repos_found,
+                    });
+                }
+            });
+            let _ = tx.send(ScanMessage::Complete(paths));
+        });
+    }
+
+    pub fn poll_background_scan(&mut self) {
+        let Some(rx) = &self.scan_rx else { return };
+        while let Ok(msg) = rx.try_recv() {
+            match msg {
+                ScanMessage::Progress { dirs_scanned, repos_found } => {
+                    self.scan_progress = Some((dirs_scanned, repos_found));
+                }
+                ScanMessage::Complete(paths) => {
+                    self.handle_scan_complete(paths);
+                    return;
+                }
+            }
+        }
+    }
+
+    fn handle_scan_complete(&mut self, discovered_paths: Vec<std::path::PathBuf>) {
+        use std::collections::HashSet;
+
+        let selected_path = self.selected_repo().map(|r| r.path.clone());
+        let discovered: HashSet<&std::path::PathBuf> = discovered_paths.iter().collect();
+        let current: HashSet<std::path::PathBuf> = self.repos.iter().map(|r| r.path.clone()).collect();
+
+        // Add newly discovered repos
+        for path in &discovered_paths {
+            if !current.contains(path) {
+                if let Ok(info) = crate::git::inspect_repo(path) {
+                    self.repos.push(info);
+                }
+            }
+        }
+
+        // Remove stale repos (cached but no longer on disk)
+        self.repos.retain(|r| discovered.contains(&r.path));
+
+        self.repos.sort_by_key(|r| r.risk_level());
+        self.rebuild_display_rows();
+
+        // Restore selection
+        if let Some(path) = selected_path {
+            for (i, row) in self.display_rows.iter().enumerate() {
+                if let Some(idx) = row.repo_index() {
+                    if self.repos[idx].path == path {
+                        self.selected = i;
+                        self.list_state.select(Some(i));
+                        break;
+                    }
+                }
+            }
+        }
+        if self.display_rows.get(self.selected).and_then(|r| r.repo_index()).is_none() {
+            self.select_first_repo();
+        }
+
+        // Write cache
+        let repo_paths: Vec<std::path::PathBuf> = self.repos.iter().map(|r| r.path.clone()).collect();
+        crate::cache::save(&self.scan_path, &repo_paths);
+
+        // Clear scanning state
+        self.scanning = false;
+        self.scan_progress = None;
+        self.scan_rx = None;
     }
 
     fn rebuild_display_rows(&mut self) {
@@ -216,6 +326,7 @@ pub fn run(app: &mut App) -> Result<()> {
 
 fn run_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut App) -> Result<()> {
     loop {
+        app.poll_background_scan();
         terminal.draw(|f| ui::draw(f, &mut *app))?;
 
         if event::poll(Duration::from_millis(100))?
