@@ -1,5 +1,6 @@
 use colored::Colorize;
 
+use crate::config::Config;
 use crate::model::{RepoInfo, RiskLevel};
 
 struct ColumnWidths {
@@ -7,17 +8,17 @@ struct ColumnWidths {
     branch: usize,
     status: usize,
     stash: usize,
-    remote: usize,
+    host: usize,
 }
 
 /// Print repos as a colored columnar table to stdout.
-pub fn print_static(repos: &[RepoInfo], home_dir: Option<&std::path::Path>) {
+pub fn print_static(repos: &[RepoInfo], home_dir: Option<&std::path::Path>, config: &Config) {
     if repos.is_empty() {
         println!("No git repositories found.");
         return;
     }
 
-    let widths = compute_widths(repos, home_dir);
+    let widths = compute_widths(repos, home_dir, config);
 
     // Summary
     let total = repos.len();
@@ -35,16 +36,16 @@ pub fn print_static(repos: &[RepoInfo], home_dir: Option<&std::path::Path>) {
         "BRANCH",
         "STATUS",
         "STASH",
-        "REMOTE",
+        "HOST",
         rw = widths.repo,
         bw = widths.branch,
         sw = widths.status,
         tw = widths.stash,
-        mw = widths.remote,
+        mw = widths.host,
     );
 
     for info in repos {
-        let row = format_row(info, &widths, home_dir);
+        let row = format_row(info, &widths, home_dir, config);
         match info.risk_level() {
             RiskLevel::AtRisk => println!("{}", row.red()),
             RiskLevel::Warning => println!("{}", row.yellow()),
@@ -53,13 +54,13 @@ pub fn print_static(repos: &[RepoInfo], home_dir: Option<&std::path::Path>) {
     }
 }
 
-fn compute_widths(repos: &[RepoInfo], home_dir: Option<&std::path::Path>) -> ColumnWidths {
+fn compute_widths(repos: &[RepoInfo], home_dir: Option<&std::path::Path>, config: &Config) -> ColumnWidths {
     let mut widths = ColumnWidths {
         repo: 4,    // "REPO"
         branch: 6,  // "BRANCH"
         status: 6,  // "STATUS"
         stash: 5,   // "STASH"
-        remote: 6,  // "REMOTE"
+        host: 4,    // "HOST"
     };
 
     for info in repos {
@@ -67,9 +68,7 @@ fn compute_widths(repos: &[RepoInfo], home_dir: Option<&std::path::Path>) -> Col
         widths.branch = widths.branch.max(info.branch_display().len());
         widths.status = widths.status.max(info.status_summary().len());
         widths.stash = widths.stash.max(info.stash_summary().len());
-        widths.remote = widths
-            .remote
-            .max(info.remote_name.as_deref().unwrap_or("\u{2014}").len());
+        widths.host = widths.host.max(info.host_display(config).len());
     }
 
     widths
@@ -79,9 +78,10 @@ fn format_row(
     info: &RepoInfo,
     widths: &ColumnWidths,
     home_dir: Option<&std::path::Path>,
+    config: &Config,
 ) -> String {
     let path_display = crate::model::display_path(&info.path, home_dir);
-    let remote_display = info.remote_name.as_deref().unwrap_or("\u{2014}");
+    let host_display = info.host_display(config);
 
     format!(
         "{:<rw$}  {:<bw$}  {:<sw$}  {:<tw$}  {:<mw$}  {}",
@@ -89,13 +89,13 @@ fn format_row(
         info.branch_display(),
         info.status_summary(),
         info.stash_summary(),
-        remote_display,
+        host_display,
         info.sync_summary(),
         rw = widths.repo,
         bw = widths.branch,
         sw = widths.status,
         tw = widths.stash,
-        mw = widths.remote,
+        mw = widths.host,
     )
 }
 
@@ -114,7 +114,9 @@ mod tests {
             staged_count: 0,
             untracked_count: 0,
             has_remote: true,
-            remote_name: Some("origin".into()),
+            remote_host: Some("github.com".into()),
+            remote_urls: vec![("origin".into(), "https://github.com/user/repo.git".into())],
+            remote_count: 1,
             has_upstream: true,
             ahead: 0,
             behind: 0,
@@ -141,32 +143,33 @@ mod tests {
     #[test]
     fn test_format_row_contains_all_columns() {
         let info = make_safe_repo("/tmp/repo");
+        let config = Config::default();
         let widths = ColumnWidths {
             repo: 20,
             branch: 10,
             status: 10,
             stash: 5,
-            remote: 10,
+            host: 10,
         };
-        let row = format_row(&info, &widths, None);
+        let row = format_row(&info, &widths, None, &config);
         assert!(row.contains("main"));
         assert!(row.contains("✓ clean"));
-        assert!(row.contains("origin"));
-        assert!(row.contains("✓ clean"));
+        assert!(row.contains("GitHub"));
     }
 
     #[test]
     fn test_format_row_with_tilde() {
         let info = make_safe_repo("/Users/alice/projects/foo");
         let home = PathBuf::from("/Users/alice");
+        let config = Config::default();
         let widths = ColumnWidths {
             repo: 30,
             branch: 10,
             status: 10,
             stash: 5,
-            remote: 10,
+            host: 10,
         };
-        let row = format_row(&info, &widths, Some(&home));
+        let row = format_row(&info, &widths, Some(&home), &config);
         assert!(row.contains("~/projects/foo"));
     }
 }

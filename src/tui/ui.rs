@@ -118,7 +118,7 @@ fn draw_repo_list(f: &mut Frame, app: &mut App, area: Rect) {
     let mut branch_w = 6_usize; // "BRANCH"
     let mut status_w = 6_usize; // "STATUS"
     let mut stash_w = 5_usize;  // "STASH"
-    let mut remote_w = 6_usize; // "REMOTE"
+    let mut remote_w = 4_usize; // "HOST"
     let mut sync_w = 4_usize;   // "SYNC"
 
     for row in &app.display_rows {
@@ -130,7 +130,7 @@ fn draw_repo_list(f: &mut Frame, app: &mut App, area: Rect) {
             branch_w = branch_w.max(repo.branch_display().len());
             status_w = status_w.max(repo.status_summary().len());
             stash_w = stash_w.max(repo.stash_summary().len());
-            remote_w = remote_w.max(repo.remote_name.as_deref().unwrap_or("\u{2014}").len());
+            remote_w = remote_w.max(repo.host_display(&app.config).len());
             let sync = repo.sync_summary();
             if !sync.is_empty() {
                 sync_w = sync_w.max(sync.len());
@@ -162,16 +162,16 @@ fn draw_repo_list(f: &mut Frame, app: &mut App, area: Rect) {
     };
 
     let mut show_stash = true;
-    let mut show_remote = true;
+    let mut show_remote = app.show_host;
     let mut show_sync = true;
 
-    let mut name_budget = available.saturating_sub(non_name_width(true, true, true));
+    let mut name_budget = available.saturating_sub(non_name_width(true, show_remote, true));
 
     if name_budget < min_name_w {
         show_sync = false;
-        name_budget = available.saturating_sub(non_name_width(true, true, false));
+        name_budget = available.saturating_sub(non_name_width(true, show_remote, false));
     }
-    if name_budget < min_name_w {
+    if name_budget < min_name_w && show_remote {
         show_remote = false;
         name_budget = available.saturating_sub(non_name_width(true, false, false));
     }
@@ -238,7 +238,7 @@ fn draw_repo_list(f: &mut Frame, app: &mut App, area: Rect) {
     if show_remote {
         header_spans.push(Span::raw("  "));
         header_spans.push(Span::styled(
-            format!("{:<w$}", "REMOTE", w = remote_w),
+            format!("{:<w$}", "HOST", w = remote_w),
             Style::default().fg(Color::DarkGray),
         ));
     }
@@ -271,7 +271,7 @@ fn draw_repo_list(f: &mut Frame, app: &mut App, area: Rect) {
                 let color = risk_color(repo.risk_level());
                 let prefix_and_name = format!("{tree_prefix}{display_name}");
                 let display = truncate_name(&prefix_and_name, actual_name_w);
-                let remote_display = repo.remote_name.as_deref().unwrap_or("\u{2014}");
+                let host_display = repo.host_display(&app.config);
 
                 let mut spans = vec![
                     Span::styled(
@@ -299,7 +299,7 @@ fn draw_repo_list(f: &mut Frame, app: &mut App, area: Rect) {
                 if show_remote {
                     spans.push(Span::raw("  "));
                     spans.push(Span::styled(
-                        format!("{:<w$}", remote_display, w = remote_w),
+                        format!("{:<w$}", host_display, w = remote_w),
                         Style::default().fg(color),
                     ));
                 }
@@ -394,6 +394,15 @@ fn draw_detail(f: &mut Frame, app: &App, area: Rect) {
             "  No remote configured",
             Style::default().fg(Color::Red),
         )));
+    } else {
+        for (name, url) in &repo.remote_urls {
+            let host = crate::model::parse_host_from_url(url)
+                .unwrap_or_else(|| "local".to_string());
+            lines.push(Line::from(Span::styled(
+                format!("  {name} \u{2192} {host} ({url})"),
+                Style::default().fg(Color::DarkGray),
+            )));
+        }
     }
 
     if repo.has_remote && !repo.has_upstream && !repo.is_detached {
@@ -476,6 +485,7 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
     }
 
     // Always-present keys
+    append_key_hint(&mut spans, "h", "ost");
     append_key_hint(&mut spans, "o", "rder");
     append_key_hint(&mut spans, "s", "hell");
     append_key_hint(&mut spans, "e", "ditor");

@@ -5,6 +5,7 @@ use std::time::Instant;
 use anyhow::Result;
 use clap::Parser;
 
+use grove::config::Config;
 use grove::scanner::{self, ScanOptions};
 use grove::git;
 use grove::model::{self, RepoInfo};
@@ -51,6 +52,7 @@ fn main() -> Result<()> {
     let interactive = !args.no_interactive && std::io::stdout().is_terminal();
     let scan_path = args.path.canonicalize()?;
     let home_dir = std::env::var("HOME").ok().map(PathBuf::from);
+    let config = Config::load();
 
     let opts = ScanOptions {
         include_hidden: args.hidden,
@@ -137,7 +139,7 @@ fn main() -> Result<()> {
         };
 
         repos.sort_by_key(|r| r.risk_level());
-        let mut app = grove::tui::App::new(repos, scan_path, opts, home_dir);
+        let mut app = grove::tui::App::new(repos, scan_path, opts, home_dir, config);
 
         if cached_paths.is_some() {
             app.start_background_scan();
@@ -176,7 +178,7 @@ fn main() -> Result<()> {
             .collect();
 
         repos.sort_by_key(|r| r.risk_level());
-        static_output::print_static(&repos, home_dir.as_deref());
+        static_output::print_static(&repos, home_dir.as_deref(), &config);
     }
 
     Ok(())

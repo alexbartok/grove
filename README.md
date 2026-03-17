@@ -44,14 +44,14 @@ grove -d 2 ~/code
 ## Static output
 
 ```
-REPO                    BRANCH    STATUS       STASH  REMOTE    SYNC
-~/projects/frontend     feat/nav  2 modified   —      origin    ↑3 ahead
-~/projects/dotfiles     main      ✓ clean      —      —         ✗ no remote
-~/projects/scripts      main      1 untracked  1      origin
-~/projects/api-server   main      ✓ clean      —      origin
+REPO                    BRANCH    STATUS       STASH  HOST        SYNC
+~/projects/frontend     feat/nav  2 modified   —      GitHub      ↑3 ahead
+~/projects/dotfiles     main      ✓ clean      —      —           ✗ no remote
+~/projects/scripts      main      1 untracked  1      GitLab +1
+~/projects/api-server   main      ✓ clean      —      GitHub
 ```
 
-Rows are colored red/yellow/green based on whether there's local-only data. The sync column only shows problems — it's blank when up-to-date. Dirty repos sort to the top.
+Rows are colored red/yellow/green based on whether there's local-only data. The HOST column shows where the origin remote is hosted, with "+N" when additional remotes exist. The sync column only shows problems — it's blank when up-to-date. Dirty repos sort to the top.
 
 ## Interactive TUI
 
@@ -63,6 +63,7 @@ A scrollable repo list with a detail panel for the selected repo. On startup, Gr
 |-----|--------|------------|
 | `↑`/`↓`, `j`/`k` | Navigate | Always |
 | `Enter` | Toggle detail panel | Always |
+| `h` | Toggle HOST column | Always |
 | `o` | Toggle tree / dirty-first sort | Always |
 | `s` | Shell in repo dir | Always |
 | `e` | `$EDITOR` in repo dir | Always |
@@ -77,6 +78,20 @@ A scrollable repo list with a detail panel for the selected repo. On startup, Gr
 | `q` / `Esc` | Quit | Always |
 
 Keys for push/pull/fetch only appear when they'd do something useful. Columns adapt to terminal width, hiding lower-priority columns when space is tight.
+
+## Configuration
+
+Grove reads `~/.config/grove/config` for optional settings. Currently this supports custom host aliases for the HOST column:
+
+```
+# Map git remote hostnames to short display names
+host.git.example.com = Work
+host.code.internal = Code
+```
+
+Well-known hosts are recognized automatically: `github.com` → GitHub, `gitlab.com` → GitLab, `bitbucket.org` → Bitbucket, `codeberg.org` → Codeberg, `sr.ht` → SourceHut. Use the config file to override these or add your own.
+
+The hostname matched is whatever appears in the remote URL. If you use SSH aliases (e.g. `git@git:user/repo.git`), configure the alias name (`host.git = MyServer`), not the real hostname.
 
 ## What it checks
 

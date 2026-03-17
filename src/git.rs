@@ -11,7 +11,8 @@ pub fn inspect_repo(path: &Path) -> Result<RepoInfo> {
 
     let (branch, is_detached) = get_branch_info(&repo);
     let (modified_count, staged_count, untracked_count) = get_working_tree_status(&repo);
-    let (has_remote, remote_name) = get_remote_info(&repo);
+    let (has_remote, origin_url, remote_urls, remote_count) = get_remote_info(&repo);
+    let remote_host = origin_url.as_deref().and_then(crate::model::parse_host_from_url);
     let (has_upstream, ahead, behind) = get_upstream_info(&repo);
     let stash_count = get_stash_count(&mut repo);
     let merge_in_progress = repo.path().join("MERGE_HEAD").exists();
@@ -26,7 +27,9 @@ pub fn inspect_repo(path: &Path) -> Result<RepoInfo> {
         staged_count,
         untracked_count,
         has_remote,
-        remote_name,
+        remote_host,
+        remote_urls,
+        remote_count,
         has_upstream,
         ahead,
         behind,
@@ -113,19 +116,38 @@ fn get_working_tree_status(repo: &Repository) -> (usize, usize, usize) {
     (modified, staged, untracked)
 }
 
-/// Check whether any remotes exist and return the name of the first one.
-fn get_remote_info(repo: &Repository) -> (bool, Option<String>) {
-    match repo.remotes() {
-        Ok(remotes) => {
-            if remotes.is_empty() {
-                (false, None)
-            } else {
-                let name = remotes.get(0).map(|s| s.to_string());
-                (true, name)
+/// Remote info: (has_remote, origin_url, all (name, url) pairs, remote_count).
+fn get_remote_info(repo: &Repository) -> (bool, Option<String>, Vec<(String, String)>, usize) {
+    let remotes = match repo.remotes() {
+        Ok(r) => r,
+        Err(_) => return (false, None, Vec::new(), 0),
+    };
+    if remotes.is_empty() {
+        return (false, None, Vec::new(), 0);
+    }
+
+    let mut all: Vec<(String, String)> = Vec::new();
+    let mut origin_url: Option<String> = None;
+
+    for name in remotes.iter().flatten() {
+        if let Ok(remote) = repo.find_remote(name) {
+            if let Some(url) = remote.url() {
+                let url = url.to_string();
+                if name == "origin" && origin_url.is_none() {
+                    origin_url = Some(url.clone());
+                }
+                all.push((name.to_string(), url));
             }
         }
-        Err(_) => (false, None),
     }
+
+    // Fall back to first remote's URL if no "origin"
+    if origin_url.is_none() {
+        origin_url = all.first().map(|(_, url)| url.clone());
+    }
+
+    let count = all.len();
+    (true, origin_url, all, count)
 }
 
 /// Determine whether the current branch has an upstream tracking branch,

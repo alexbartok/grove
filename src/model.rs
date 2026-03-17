@@ -1,5 +1,7 @@
 use std::path::PathBuf;
 
+use crate::config::Config;
+
 /// Risk classification for a repository's state.
 /// Ordered so that `AtRisk` sorts first (lowest ordinal).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -19,7 +21,9 @@ pub struct RepoInfo {
     pub staged_count: usize,
     pub untracked_count: usize,
     pub has_remote: bool,
-    pub remote_name: Option<String>,
+    pub remote_host: Option<String>,
+    pub remote_urls: Vec<(String, String)>,
+    pub remote_count: usize,
     pub has_upstream: bool,
     pub ahead: usize,
     pub behind: usize,
@@ -95,6 +99,27 @@ impl RepoInfo {
         }
     }
 
+    /// Display the upstream host/service name, with optional "+N" for extra remotes.
+    pub fn host_display(&self, config: &Config) -> String {
+        match &self.remote_host {
+            None => "\u{2014}".to_string(),
+            Some(hostname) => {
+                let label = if let Some(alias) = config.host_aliases.get(hostname.as_str()) {
+                    alias.clone()
+                } else if let Some(builtin) = builtin_host_name(hostname) {
+                    builtin.to_string()
+                } else {
+                    hostname.clone()
+                };
+                if self.remote_count > 1 {
+                    format!("{} +{}", label, self.remote_count - 1)
+                } else {
+                    label
+                }
+            }
+        }
+    }
+
     /// One-line remote/sync status summary.
     pub fn sync_summary(&self) -> String {
         if !self.has_remote {
@@ -111,6 +136,56 @@ impl RepoInfo {
             (false, false) => String::new(),
         }
     }
+}
+
+/// Map well-known hostnames to short display names.
+fn builtin_host_name(hostname: &str) -> Option<&'static str> {
+    match hostname {
+        "github.com" => Some("GitHub"),
+        "gitlab.com" => Some("GitLab"),
+        "bitbucket.org" => Some("Bitbucket"),
+        "codeberg.org" => Some("Codeberg"),
+        "sr.ht" | "git.sr.ht" => Some("SourceHut"),
+        _ => None,
+    }
+}
+
+/// Extract the hostname from a git remote URL.
+///
+/// Handles HTTPS (`https://github.com/user/repo.git`),
+/// SCP-style SSH (`git@github.com:user/repo.git`),
+/// and SSH with scheme (`ssh://git@host/repo`).
+/// Returns `None` for local paths.
+pub fn parse_host_from_url(url: &str) -> Option<String> {
+    // HTTPS / SSH with scheme: starts with a scheme
+    if let Some(rest) = url.strip_prefix("https://")
+        .or_else(|| url.strip_prefix("http://"))
+        .or_else(|| url.strip_prefix("ssh://"))
+        .or_else(|| url.strip_prefix("git://"))
+    {
+        // Strip user@ prefix if present
+        let after_user = rest.split_once('@').map(|(_, h)| h).unwrap_or(rest);
+        // Take host part before / or : (also strips port numbers)
+        let host = after_user.split(&['/', ':'][..]).next()?;
+        if host.is_empty() {
+            return None;
+        }
+        return Some(host.to_lowercase());
+    }
+
+    // SCP-style: user@host:path (no scheme, must contain @ and :)
+    if let Some(at_pos) = url.find('@') {
+        let after_at = &url[at_pos + 1..];
+        if let Some(colon_pos) = after_at.find(':') {
+            let host = &after_at[..colon_pos];
+            if !host.is_empty() && !host.contains('/') {
+                return Some(host.to_lowercase());
+            }
+        }
+    }
+
+    // Local path or unrecognized format
+    None
 }
 
 /// Shorten a path by replacing $HOME prefix with `~`.
@@ -136,7 +211,9 @@ mod tests {
             staged_count: 0,
             untracked_count: 0,
             has_remote: true,
-            remote_name: Some("origin".to_string()),
+            remote_host: Some("github.com".to_string()),
+            remote_urls: vec![("origin".to_string(), "https://github.com/user/repo.git".to_string())],
+            remote_count: 1,
             has_upstream: true,
             ahead: 0,
             behind: 0,
@@ -364,5 +441,83 @@ mod tests {
         repo.ahead = 3;
         repo.behind = 2;
         assert_eq!(repo.sync_summary(), "↑3 ↓2");
+    }
+
+    // --- URL parsing tests ---
+
+    #[test]
+    fn test_parse_host_https() {
+        assert_eq!(parse_host_from_url("https://github.com/user/repo.git"), Some("github.com".into()));
+        assert_eq!(parse_host_from_url("https://gitlab.com/user/repo"), Some("gitlab.com".into()));
+    }
+
+    #[test]
+    fn test_parse_host_ssh_scp() {
+        assert_eq!(parse_host_from_url("git@github.com:user/repo.git"), Some("github.com".into()));
+        assert_eq!(parse_host_from_url("git@git.iguana-galaxy.ts.net:user/repo.git"), Some("git.iguana-galaxy.ts.net".into()));
+    }
+
+    #[test]
+    fn test_parse_host_ssh_scheme() {
+        assert_eq!(parse_host_from_url("ssh://git@github.com/user/repo.git"), Some("github.com".into()));
+    }
+
+    #[test]
+    fn test_parse_host_git_scheme() {
+        assert_eq!(parse_host_from_url("git://example.com/repo.git"), Some("example.com".into()));
+    }
+
+    #[test]
+    fn test_parse_host_local_path() {
+        assert_eq!(parse_host_from_url("/path/to/repo.git"), None);
+        assert_eq!(parse_host_from_url("../relative/repo"), None);
+    }
+
+    #[test]
+    fn test_parse_host_case_insensitive() {
+        assert_eq!(parse_host_from_url("https://GitHub.COM/user/repo.git"), Some("github.com".into()));
+    }
+
+    // --- Host display tests ---
+
+    #[test]
+    fn test_host_display_builtin() {
+        let repo = default_repo();
+        let config = Config::default();
+        assert_eq!(repo.host_display(&config), "GitHub");
+    }
+
+    #[test]
+    fn test_host_display_config_override() {
+        let repo = default_repo();
+        let mut config = Config::default();
+        config.host_aliases.insert("github.com".into(), "GH".into());
+        assert_eq!(repo.host_display(&config), "GH");
+    }
+
+    #[test]
+    fn test_host_display_unknown_host() {
+        let mut repo = default_repo();
+        repo.remote_host = Some("git.iguana-galaxy.ts.net".into());
+        let config = Config::default();
+        assert_eq!(repo.host_display(&config), "git.iguana-galaxy.ts.net");
+    }
+
+    #[test]
+    fn test_host_display_multi_remote() {
+        let mut repo = default_repo();
+        repo.remote_count = 3;
+        let config = Config::default();
+        assert_eq!(repo.host_display(&config), "GitHub +2");
+    }
+
+    #[test]
+    fn test_host_display_no_remote() {
+        let mut repo = default_repo();
+        repo.has_remote = false;
+        repo.remote_host = None;
+        repo.remote_count = 0;
+        let config = Config::default();
+        assert_eq!(repo.host_display(&config), "\u{2014}");
     }
 }

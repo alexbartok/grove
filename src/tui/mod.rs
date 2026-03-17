@@ -15,6 +15,7 @@ use crossterm::{
 };
 use ratatui::{backend::CrosstermBackend, widgets::ListState, Terminal};
 
+use crate::config::Config;
 use crate::model::RepoInfo;
 use tree::{DisplayRow, SortMode};
 
@@ -41,9 +42,11 @@ pub struct App {
     pub scan_path: std::path::PathBuf,
     pub scan_options: crate::scanner::ScanOptions,
     pub home_dir: Option<std::path::PathBuf>,
+    pub config: Config,
     pub sort_mode: SortMode,
     pub display_rows: Vec<DisplayRow>,
     pub has_lazygit: bool,
+    pub show_host: bool,
     pub scanning: bool,
     pub scan_progress: Option<(usize, usize)>,
     pub flash_message: Option<(String, std::time::Instant)>,
@@ -57,6 +60,7 @@ impl App {
         scan_path: std::path::PathBuf,
         scan_options: crate::scanner::ScanOptions,
         home_dir: Option<std::path::PathBuf>,
+        config: Config,
     ) -> Self {
         let mut app = Self {
             repos,
@@ -67,9 +71,11 @@ impl App {
             scan_path,
             scan_options,
             home_dir,
+            config,
             sort_mode: SortMode::Tree,
             display_rows: Vec::new(),
             has_lazygit: detect_lazygit(),
+            show_host: true,
             scanning: false,
             scan_progress: None,
             flash_message: None,
@@ -128,6 +134,10 @@ impl App {
 
     pub fn toggle_detail(&mut self) {
         self.detail_expanded = !self.detail_expanded;
+    }
+
+    pub fn toggle_host(&mut self) {
+        self.show_host = !self.show_host;
     }
 
     pub fn toggle_sort(&mut self) {
@@ -362,6 +372,7 @@ fn handle_key(
         KeyCode::Char('P') => actions::git_pull(app)?,
         KeyCode::Char('y') => actions::copy_path(app)?,
         KeyCode::Char('l') => actions::launch_lazygit(app, terminal)?,
+        KeyCode::Char('h') => app.toggle_host(),
         _ => {}
     }
     Ok(())
